@@ -16,7 +16,28 @@ const (
 	ParamCPULoad    = "cpu-load-percentage" // % de carga em cada núcleo estressado
 	ParamCPUWorkers = "cpu-workers"         // quantos núcleos estressar
 	ParamMemBytes   = "memory-vm-bytes"     // ex.: 256m, 1g ou 80%
+	// ParamPods vale só no Kubernetes: "one" atinge um pod do Deployment, "all" atinge todos.
+	ParamPods = "pods"
 )
+
+// Valores de ParamPods.
+const (
+	PodsOne = "one"
+	PodsAll = "all"
+)
+
+// PodsMode devolve a quantos pods a falha se aplica no Kubernetes. Padrão: kill em um pod
+// (o Deployment recria e as outras réplicas seguram o tráfego); as demais em todos.
+func (f Fault) PodsMode() string {
+	switch v := strings.TrimSpace(f.Params[ParamPods]); v {
+	case PodsOne, PodsAll:
+		return v
+	}
+	if f.Type == FaultKillRestart {
+		return PodsOne
+	}
+	return PodsAll
+}
 
 // FaultDefaults são os valores usados quando um parâmetro não é informado.
 var FaultDefaults = map[FaultType]map[string]string{
@@ -56,6 +77,9 @@ func intIn(f Fault, k string, min, max int) error {
 
 // ValidateParams confere os parâmetros de uma falha.
 func (f Fault) ValidateParams() error {
+	if v := strings.TrimSpace(f.Params[ParamPods]); v != "" && v != PodsOne && v != PodsAll {
+		return fmt.Errorf("%s deve ser %q ou %q", ParamPods, PodsOne, PodsAll)
+	}
 	switch f.Type {
 	case FaultLatency:
 		if err := intIn(f, ParamLatency, 1, 60000); err != nil {

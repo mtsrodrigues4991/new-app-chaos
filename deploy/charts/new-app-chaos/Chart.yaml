@@ -1,0 +1,6 @@
+apiVersion: v2
+name: new-app-chaos
+description: new-app-chaos (carga com k6, caos com Chaos Mesh e análise por IA) rodando dentro do cluster.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

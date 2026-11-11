@@ -17,6 +17,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
@@ -26,6 +27,7 @@ import (
 
 type Server struct {
 	Docker *dockerx.Client // nil se o Docker não estiver acessível
+	Kube   *kube.Client    // nil fora de um cluster Kubernetes
 	Store  *store.Store
 	Runner *runner.Manager
 	AI     *ai.Registry
@@ -37,9 +39,10 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docker": s.Docker != nil})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docker": s.Docker != nil, "kubernetes": s.Kube != nil})
 	})
 	r.Get("/api/containers", s.listContainers)
+	r.Get("/api/deployments", s.listDeployments)
 
 	r.Get("/api/scenarios", s.listScenarios)
 	r.Post("/api/scenarios", s.createScenario)

@@ -1,0 +1,19 @@
+# Nome do Deployment e do Service (padrão: nome do release).
+name: ""
+image: ""
+pullPolicy: IfNotPresent
+replicas: 2
+# Porta do container; o Service expõe a mesma.
+port: 8080
+# Variáveis de ambiente ([{name, value}]).
+env: []
+# Sonda de prontidão: path HTTP (ex.: /health) ou vazio para TCP na porta.
+probe:
+  path: ""
+  initialDelaySeconds: 5
+  periodSeconds: 5
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+# Muda a cada make kind-up para os pods pegarem a imagem recém-carregada (mesma tag).
+buildId: ""

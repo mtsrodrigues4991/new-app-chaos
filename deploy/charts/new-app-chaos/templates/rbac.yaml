@@ -1,0 +1,68 @@
+# O backend lê Deployments, Services e pods de todos os namespaces (alvos), lê métricas,
+# cria os Jobs do k6 no próprio namespace e cria/apaga recursos do Chaos Mesh nos alvos.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: new-app-chaos
+  labels: {{- include "nac.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-new-app-chaos
+  labels: {{- include "nac.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["chaos-mesh.org"]
+    resources: ["networkchaos", "stresschaos", "podchaos", "iochaos", "dnschaos", "httpchaos"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-new-app-chaos
+  labels: {{- include "nac.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-new-app-chaos
+subjects:
+  - kind: ServiceAccount
+    name: new-app-chaos
+    namespace: {{ .Release.Namespace }}
+---
+# Jobs do k6 só no namespace do app.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: new-app-chaos-k6
+  labels: {{- include "nac.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: new-app-chaos-k6
+  labels: {{- include "nac.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: new-app-chaos-k6
+subjects:
+  - kind: ServiceAccount
+    name: new-app-chaos
+    namespace: {{ .Release.Namespace }}

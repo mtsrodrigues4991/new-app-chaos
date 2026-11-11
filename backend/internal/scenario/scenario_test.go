@@ -1,6 +1,9 @@
 package scenario
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStagesSumToDuration(t *testing.T) {
 	for _, typ := range []ProfileType{ProfileRamp, ProfilePlateau, ProfileSpike} {
@@ -91,5 +94,40 @@ func TestValidateFaults(t *testing.T) {
 	load.Profile = Profile{Type: ProfileRamp, VUs: 5, DurationSeconds: 30}
 	if err := load.Validate(); err != nil {
 		t.Fatalf("modo carga: %v", err)
+	}
+}
+
+func TestValidateKubernetesTarget(t *testing.T) {
+	sc := Scenario{
+		Name:      "k8s",
+		Target:    Target{Platform: PlatformKubernetes, Namespace: "demo", Deployment: "demo-api", BaseURL: "http://demo-api.demo:8080"},
+		Mode:      ModeChaos,
+		ProbePath: "/health",
+		Profile:   Profile{DurationSeconds: 60},
+		Faults:    []Fault{{ID: "a", Type: FaultKillRestart, StartSeconds: 5, DurationSeconds: 10, Params: map[string]string{ParamPods: PodsAll}}},
+	}
+	if err := sc.Validate(); err != nil {
+		t.Fatalf("esperava válido: %v", err)
+	}
+	if sc.Target.Name() != "demo/demo-api" || sc.Faults[0].PodsMode() != PodsAll {
+		t.Fatalf("Name=%q PodsMode=%q", sc.Target.Name(), sc.Faults[0].PodsMode())
+	}
+	if (Fault{Type: FaultKillRestart}).PodsMode() != PodsOne || (Fault{Type: FaultLatency}).PodsMode() != PodsAll {
+		t.Fatal("padrões de pods errados")
+	}
+	noDep := sc
+	noDep.Target.Deployment = ""
+	if noDep.Validate() == nil {
+		t.Fatal("sem Deployment deveria falhar")
+	}
+	docker := sc
+	docker.Target = Target{Container: "demo-api", BaseURL: "http://demo-api:8080"}
+	if err := docker.Validate(); err == nil || !strings.Contains(err.Error(), "pods") {
+		t.Fatalf("parâmetro pods fora do Kubernetes deveria falhar, veio %v", err)
+	}
+	bad := sc
+	bad.Faults = []Fault{{ID: "a", Type: FaultLatency, StartSeconds: 5, DurationSeconds: 10, Params: map[string]string{ParamPods: "metade"}}}
+	if bad.Validate() == nil {
+		t.Fatal("pods inválido deveria falhar")
 	}
 }

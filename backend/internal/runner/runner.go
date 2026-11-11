@@ -9,9 +9,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"log"
 	"net"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +41,7 @@ type Event struct {
 
 type active struct {
 	mu      sync.Mutex
-	k6ID    string
+	k6      K6
 	aborted bool
 	cancel  context.CancelFunc // interrompe a execução (usado no abort)
 	subs    map[chan Event]struct{}
@@ -59,7 +59,8 @@ func (a *active) broadcast(ev Event) {
 }
 
 type Manager struct {
-	Docker  *dockerx.Client
+	Docker  *dockerx.Client // nil se o Docker não estiver acessível
+	Kube    *kube.Client    // nil fora de um cluster Kubernetes
 	Store   *store.Store
 	Chaos   *chaos.Engine
 	K6Image string
@@ -68,31 +69,37 @@ type Manager struct {
 	runs map[string]*active
 }
 
-func NewManager(d *dockerx.Client, s *store.Store) *Manager {
-	return &Manager{Docker: d, Store: s, Chaos: &chaos.Engine{Docker: d}, K6Image: DefaultK6Image, runs: map[string]*active{}}
+func NewManager(d *dockerx.Client, k *kube.Client, s *store.Store) *Manager {
+	return &Manager{Docker: d, Kube: k, Store: s, Chaos: &chaos.Engine{Docker: d}, K6Image: DefaultK6Image, runs: map[string]*active{}}
+}
+
+// platform devolve a plataforma do alvo do cenário, ou erro se ela não está acessível.
+func (m *Manager) platform(p scenario.Platform) (Platform, error) {
+	switch p {
+	case scenario.PlatformDocker:
+		if m.Docker == nil {
+			return nil, errors.New("Docker não acessível pelo backend (no Kubernetes, use um alvo Deployment)")
+		}
+		return &dockerPlatform{docker: m.Docker, chaos: m.Chaos}, nil
+	case scenario.PlatformKubernetes:
+		if m.Kube == nil {
+			return nil, errors.New("o backend não está rodando num cluster Kubernetes (suba com make kind-up)")
+		}
+		return newK8sPlatform(m.Kube), nil
+	}
+	return nil, fmt.Errorf("plataforma desconhecida: %q", p)
 }
 
 // Recover limpa o que sobrou de uma execução interrompida (backend reiniciado no meio).
 func (m *Manager) Recover(ctx context.Context) {
 	// Primeiro desfaz falhas que possam ter ficado aplicadas no alvo.
-	if runs, err := m.Store.InterruptedRuns(ctx); err != nil {
+	runs, err := m.Store.InterruptedRuns(ctx)
+	if err != nil {
 		log.Printf("recover: %v", err)
-	} else if m.Docker != nil {
-		for _, r := range runs {
-			if !r.Scenario.HasChaos() || len(r.Scenario.Faults) == 0 {
-				continue
-			}
-			types := map[scenario.FaultType]bool{}
-			for _, f := range r.Scenario.Faults {
-				types[f.Type] = true
-			}
-			cctx, cancel := context.WithTimeout(ctx, time.Minute)
-			if err := m.Chaos.Cleanup(cctx, r.Scenario.Target.Container, types); err != nil {
-				log.Printf("recover: revertendo falhas no alvo %s: %v", r.Scenario.Target.Container, err)
-			} else {
-				log.Printf("recover: falhas revertidas no alvo %s", r.Scenario.Target.Container)
-			}
-			cancel()
+	}
+	for _, p := range []scenario.Platform{scenario.PlatformDocker, scenario.PlatformKubernetes} {
+		if pl, err := m.platform(p); err == nil {
+			pl.Recover(ctx, runs)
 		}
 	}
 	if n, err := m.Store.FailInterrupted(ctx); err != nil {
@@ -100,15 +107,6 @@ func (m *Manager) Recover(ctx context.Context) {
 	} else if n > 0 {
 		log.Printf("recover: %d execução(ões) interrompida(s) marcadas como falha", n)
 	}
-	if m.Docker == nil {
-		return
-	}
-	if n, err := m.Docker.RemoveByRole(ctx, RoleK6); err != nil {
-		log.Printf("recover: limpando containers do k6: %v", err)
-	} else if n > 0 {
-		log.Printf("recover: %d container(es) do k6 removido(s)", n)
-	}
-	_, _ = m.Docker.RemoveByRole(ctx, chaos.RoleTools)
 }
 
 // ErrBusy indica que já existe uma execução em andamento.
@@ -116,25 +114,16 @@ var ErrBusy = errors.New("já existe uma execução em andamento; aborte-a ou es
 
 // Start valida o cenário, registra a execução e a dispara em segundo plano.
 func (m *Manager) Start(ctx context.Context, sc scenario.Scenario) (store.Run, error) {
-	if m.Docker == nil {
-		return store.Run{}, errors.New("Docker não acessível pelo backend")
-	}
 	if err := sc.Validate(); err != nil {
 		return store.Run{}, err
 	}
-	targetID, networks, running, err := m.Docker.Inspect(ctx, sc.Target.Container)
-	if errors.Is(err, dockerx.ErrNotFound) {
-		return store.Run{}, fmt.Errorf("container alvo %q não existe", sc.Target.Container)
-	}
+	pl, err := m.platform(sc.Target.EffectivePlatform())
 	if err != nil {
 		return store.Run{}, err
 	}
-	if !running {
-		return store.Run{}, fmt.Errorf("container alvo %q não está rodando", sc.Target.Container)
-	}
-	network := pickNetwork(networks)
-	if network == "" {
-		return store.Run{}, fmt.Errorf("container alvo %q não está numa rede que o app possa usar", sc.Target.Container)
+	target, err := pl.Resolve(ctx, sc)
+	if err != nil {
+		return store.Run{}, err
 	}
 
 	m.mu.Lock()
@@ -152,17 +141,8 @@ func (m *Manager) Start(ctx context.Context, sc scenario.Scenario) (store.Run, e
 		m.finish(run.ID)
 		return store.Run{}, err
 	}
-	go m.execute(run, targetID, network, a)
+	go m.execute(run, target, a)
 	return run, nil
-}
-
-func pickNetwork(networks []string) string {
-	for _, n := range networks {
-		if n != "host" && n != "none" {
-			return n
-		}
-	}
-	return ""
 }
 
 // Subscribe devolve um canal com os eventos ao vivo da execução, ou ok=false se ela não está ativa.
@@ -198,15 +178,15 @@ func (m *Manager) Abort(ctx context.Context, runID string) error {
 	}
 	a.mu.Lock()
 	a.aborted = true
-	id, cancel := a.k6ID, a.cancel
+	k6, cancel := a.k6, a.cancel
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if id == "" {
+	if k6 == nil {
 		return nil // sem k6 (só caos) ou ainda baixando a imagem; o execute vê a flag
 	}
-	return m.Docker.Kill(ctx, id, "SIGKILL") // já parado não é erro
+	return k6.Kill(ctx) // já parado não é erro
 }
 
 func (m *Manager) finish(runID string) {
@@ -232,7 +212,7 @@ func (m *Manager) setStatus(runID string, a *active, st store.RunStatus, msg str
 	a.broadcast(Event{Type: "status", Status: st, Error: msg})
 }
 
-func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
+func (m *Manager) execute(run store.Run, target Target, a *active) {
 	defer m.finish(run.ID)
 	ctx := context.Background()
 	sc := run.Scenario
@@ -255,8 +235,8 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 
 	var script string
 	if sc.HasLoad() {
-		if err := m.Docker.EnsureImage(ctx, m.K6Image); err != nil {
-			fail(fmt.Errorf("baixando a imagem do k6: %w", err))
+		if err := target.PrepareLoad(ctx, m.K6Image); err != nil {
+			fail(err)
 			return
 		}
 		var err error
@@ -268,7 +248,7 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	var probeURL string
 	if sc.EffectiveMode() == scenario.ModeChaos {
 		var err error
-		if probeURL, err = m.probeURL(ctx, sc, targetID, network); err != nil {
+		if probeURL, err = target.ProbeURL(ctx, sc); err != nil {
 			fail(err)
 			return
 		}
@@ -280,14 +260,14 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	}
 
 	// --- k6 (modos carga e carga + caos) ---
-	var k6ID, reachNet string
+	var k6 K6
 	exited := make(chan k6Exit, 1)
 	if sc.HasLoad() {
 		var err error
-		k6ID, reachNet, err = m.startK6(ctx, run, script, network)
-		if k6ID != "" {
+		k6, err = target.StartK6(ctx, run.ID, m.K6Image, script)
+		if k6 != nil {
 			defer func() {
-				if err := m.Docker.Remove(context.Background(), k6ID); err != nil {
+				if err := k6.Remove(context.Background()); err != nil {
 					log.Printf("run %s: removendo k6: %v", run.ID, err)
 				}
 			}()
@@ -297,14 +277,14 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 			return
 		}
 		a.mu.Lock()
-		a.k6ID = k6ID
+		a.k6 = k6
 		a.mu.Unlock()
 		if isAborted() {
 			cancelRun()
-			_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
+			_ = k6.Kill(ctx)
 		}
 		go func() {
-			code, err := m.Docker.Wait(ctx, k6ID)
+			code, err := k6.Wait(ctx)
 			exited <- k6Exit{code, err}
 		}()
 	}
@@ -331,9 +311,15 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	go func() { // CPU e memória do alvo; reconecta se o alvo cair (kill/restart)
 		defer bg.Done()
 		for bgCtx.Err() == nil {
-			err := m.Docker.Stats(bgCtx, targetID, func(cpu, mem float64) {
+			err := target.Stats(bgCtx, func(s Sample) {
+				now := time.Now()
 				aggMu.Lock()
-				agg.AddStats(time.Now(), cpu, mem)
+				if !s.NoUsage {
+					agg.AddStats(now, s.CPU, s.MemMB)
+				}
+				if s.Total > 0 || sc.Target.EffectivePlatform() == scenario.PlatformKubernetes {
+					agg.AddPods(now, s.Ready, s.Total)
+				}
 				aggMu.Unlock()
 			})
 			if err != nil && bgCtx.Err() == nil {
@@ -386,13 +372,13 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	var faultErr error
 	if sc.HasChaos() {
 		go func() {
-			err := m.runFaults(faultCtx, run.ID, a, targetID, sc.SortedFaults(), started)
+			err := m.runFaults(faultCtx, run.ID, a, target, sc.SortedFaults(), started)
 			if err != nil && !isAborted() {
 				// Falha que não aplicou ou não reverteu: o resultado não vale; encerra o teste.
 				log.Printf("run %s: %v", run.ID, err)
 				cancelRun()
-				if k6ID != "" {
-					_ = m.Docker.Kill(context.Background(), k6ID, "SIGKILL")
+				if k6 != nil {
+					_ = k6.Kill(context.Background())
 				}
 			}
 			faultDone <- err
@@ -405,7 +391,7 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	var exitRes *k6Exit
 	var streamErr error
 	if sc.HasLoad() {
-		exitRes, streamErr = m.waitK6(ctx, runCtx, run, k6ID, reachNet, agg, &aggMu, exited)
+		exitRes, streamErr = m.waitK6(ctx, runCtx, run, k6, agg, &aggMu, exited)
 	} else {
 		select {
 		case <-time.After(time.Duration(sc.Profile.DurationSeconds) * time.Second):
@@ -431,7 +417,7 @@ func (m *Manager) execute(run store.Run, targetID, network string, a *active) {
 	case exitRes != nil && exitRes.err != nil:
 		m.setStatus(run.ID, a, store.RunFailed, "esperando o k6: "+exitRes.err.Error(), nil, &ended)
 	case exitRes != nil && exitRes.code != 0:
-		tail, _ := m.Docker.LogsTail(ctx, k6ID, 20)
+		tail, _ := k6.LogsTail(ctx, 20)
 		m.setStatus(run.ID, a, store.RunFailed, fmt.Sprintf("k6 saiu com código %d: %s", exitRes.code, lastLines(tail, 5)), nil, &ended)
 	case streamErr != nil:
 		m.setStatus(run.ID, a, store.RunFailed, "lendo as métricas do k6: "+streamErr.Error(), nil, &ended)
@@ -445,61 +431,14 @@ type k6Exit struct {
 	err  error
 }
 
-// startK6 cria, liga à rede certa e inicia o container do k6.
-// Devolve o id (mesmo em caso de erro, para quem chama remover) e a rede pela qual o backend o alcança.
-func (m *Manager) startK6(ctx context.Context, run store.Run, script, network string) (string, string, error) {
-	k6ID, err := m.Docker.Create(ctx, dockerx.RunSpec{
-		Name:       "new-app-chaos-k6-" + run.ID,
-		Image:      m.K6Image,
-		Entrypoint: []string{"sh", "-c"},
-		Cmd:        []string{`printf '%s' "$K6_SCRIPT" > /tmp/script.js && exec k6 run --quiet --no-summary --no-usage-report /tmp/script.js`},
-		Env: []string{
-			"K6_SCRIPT=" + script,
-			// Dashboard embutido do k6: publica as métricas já agregadas por segundo em :5665/events.
-			"K6_WEB_DASHBOARD=true",
-			"K6_WEB_DASHBOARD_HOST=0.0.0.0",
-			fmt.Sprintf("K6_WEB_DASHBOARD_PORT=%d", dashboardPort),
-			"K6_WEB_DASHBOARD_PERIOD=1s",
-		},
-		Network: network,
-		Role:    RoleK6,
-		RunID:   run.ID,
-	})
-	if err != nil {
-		return "", "", fmt.Errorf("criando o container do k6: %w", err)
-	}
-
-	// O backend precisa alcançar o dashboard do k6. Se ele roda num container, liga o k6
-	// também à rede do backend; se roda direto na máquina, usa o IP na rede do alvo.
-	reachNet := network
-	if self := m.Docker.SelfNetworks(ctx); len(self) > 0 {
-		reachNet = ""
-		for _, n := range self {
-			if n == network {
-				reachNet = n
-			}
-		}
-		if reachNet == "" {
-			reachNet = pickNetwork(self)
-			if err := m.Docker.ConnectNetwork(ctx, reachNet, k6ID); err != nil {
-				return k6ID, "", fmt.Errorf("ligando o k6 à rede do backend (%s): %w", reachNet, err)
-			}
-		}
-	}
-	if err := m.Docker.Start(ctx, k6ID); err != nil {
-		return k6ID, "", fmt.Errorf("iniciando o k6: %w", err)
-	}
-	return k6ID, reachNet, nil
-}
-
 // waitK6 lê o dashboard até o k6 anunciar o fim e espera o container sair.
 // Se o k6 sair sem anunciar, ou passar muito do previsto, corta.
-func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6ID, reachNet string, agg *load.Aggregator, aggMu *sync.Mutex, exited chan k6Exit) (*k6Exit, error) {
+func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6 K6, agg *load.Aggregator, aggMu *sync.Mutex, exited chan k6Exit) (*k6Exit, error) {
 	streamCtx, stopStream := context.WithCancel(runCtx)
 	defer stopStream()
 	var exitRes *k6Exit
 	streamDone := make(chan error, 1)
-	go func() { streamDone <- m.streamDashboard(streamCtx, k6ID, reachNet, agg, aggMu) }()
+	go func() { streamDone <- m.streamDashboard(streamCtx, k6, agg, aggMu) }()
 	watchdog := time.NewTimer(time.Duration(run.Scenario.Profile.DurationSeconds)*time.Second + 2*time.Minute)
 	defer watchdog.Stop()
 	var streamErr error
@@ -509,7 +448,7 @@ func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6ID, reach
 		log.Printf("run %s: passou muito do tempo previsto; encerrando", run.ID)
 		stopStream()
 		streamErr = <-streamDone
-		_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
+		_ = k6.Kill(ctx)
 	case e := <-exited:
 		exitRes = &e
 		select {
@@ -528,7 +467,7 @@ func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6ID, reach
 			exitRes = &e
 		case <-time.After(15 * time.Second):
 			log.Printf("run %s: k6 não saiu sozinho; matando", run.ID)
-			_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
+			_ = k6.Kill(ctx)
 			e := <-exited
 			exitRes = &e
 		}
@@ -539,7 +478,7 @@ func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6ID, reach
 // runFaults aplica e reverte as falhas na hora marcada, uma por vez. Quando ctx acaba
 // (abort ou fim do teste), reverte a falha ativa e marca as restantes como não executadas.
 // Devolve erro se uma falha não pôde ser aplicada ou revertida.
-func (m *Manager) runFaults(ctx context.Context, runID string, a *active, targetID string, faults []scenario.Fault, started time.Time) error {
+func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target Target, faults []scenario.Fault, started time.Time) error {
 	at := func(sec int) time.Time { return started.Add(time.Duration(sec) * time.Second) }
 	since := func() *float64 { v := float64(time.Since(started).Milliseconds()) / 1000; return &v }
 	save := func(ev store.FaultEvent) {
@@ -563,7 +502,7 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 		ev := store.FaultEvent{FaultID: f.ID, Type: f.Type}
 		// Aplica com contexto próprio: um abort no meio não pode deixar a falha "meio aplicada".
 		actx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		revert, err := m.Chaos.Apply(actx, targetID, f)
+		revert, err := target.ApplyFault(actx, runID, f)
 		cancel()
 		if err != nil {
 			ev.State, ev.Error = store.FaultFailed, err.Error()
@@ -602,48 +541,20 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 	return nil
 }
 
-// probeURL monta a URL da sonda e garante que o backend alcança o alvo: se o backend roda
-// num container fora da rede do alvo, ele entra nessa rede; se roda na máquina, usa o IP do alvo.
-func (m *Manager) probeURL(ctx context.Context, sc scenario.Scenario, targetID, network string) (string, error) {
-	u, err := url.Parse(strings.TrimRight(sc.Target.BaseURL, "/") + sc.ProbePath)
-	if err != nil {
-		return "", fmt.Errorf("URL da sonda inválida: %w", err)
-	}
-	if selfID, _ := m.Docker.Self(ctx); selfID != "" {
-		for _, n := range m.Docker.SelfNetworks(ctx) {
-			if n == network {
-				return u.String(), nil
-			}
-		}
-		if err := m.Docker.ConnectNetwork(ctx, network, selfID); err != nil && !strings.Contains(err.Error(), "already exists") {
-			return "", fmt.Errorf("ligando o backend à rede do alvo (%s) para a sonda: %w", network, err)
-		}
-		return u.String(), nil
-	}
-	ips, err := m.Docker.IPs(ctx, targetID)
-	if err != nil {
-		return "", err
-	}
-	if ip := ips[network]; ip != "" {
-		if port := u.Port(); port != "" {
-			u.Host = net.JoinHostPort(ip, port)
-		} else {
-			u.Host = ip
-		}
-	}
-	return u.String(), nil
-}
-
 const dashboardPort = 5665
 
 // streamDashboard espera o dashboard do k6 subir e lê os resumos até o fim do teste.
-func (m *Manager) streamDashboard(ctx context.Context, k6ID, network string, agg *load.Aggregator, mu *sync.Mutex) error {
+func (m *Manager) streamDashboard(ctx context.Context, k6 K6, agg *load.Aggregator, mu *sync.Mutex) error {
 	var url string
-	deadline := time.Now().Add(60 * time.Second)
+	// No Kubernetes o pod pode levar mais para subir (agendamento e download da imagem).
+	deadline := time.Now().Add(3 * time.Minute)
 	for {
-		ips, err := m.Docker.IPs(ctx, k6ID)
-		if err == nil && ips[network] != "" {
-			url = fmt.Sprintf("http://%s:%d/events", ips[network], dashboardPort)
+		u, err := k6.DashboardURL(ctx)
+		if err != nil {
+			return err
+		}
+		if u != "" {
+			url = u
 			err = load.StreamDashboard(ctx, url, agg.Start(), func(s *load.Snapshot) {
 				mu.Lock()
 				agg.AddSnapshot(s)
@@ -661,6 +572,9 @@ func (m *Manager) streamDashboard(ctx context.Context, k6ID, network string, agg
 			return nil
 		}
 		if time.Now().After(deadline) {
+			if url == "" {
+				return errors.New("o k6 não ficou pronto em 3 minutos (no Kubernetes: kubectl get pods -l new-app-chaos/role=k6)")
+			}
 			return fmt.Errorf("dashboard do k6 não respondeu em %s: %v", url, err)
 		}
 		select {

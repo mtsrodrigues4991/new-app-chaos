@@ -11,6 +11,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/api"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 )
@@ -30,11 +31,19 @@ func main() {
 
 	dk, err := dockerx.New()
 	if err != nil {
-		log.Printf("aviso: Docker não acessível (%v); listagem de containers e execuções desativadas", err)
+		log.Printf("aviso: Docker não acessível (%v); alvos container desativados", err)
 		dk = nil
 	}
 
-	mgr := runner.NewManager(dk, st)
+	kc, err := kube.New()
+	if err != nil {
+		log.Printf("aviso: Kubernetes não acessível (%v); alvos Deployment desativados", err)
+		kc = nil
+	} else if kc != nil {
+		log.Printf("Kubernetes: API em %s, namespace do app %q", kc.Base, kc.Namespace())
+	}
+
+	mgr := runner.NewManager(dk, kc, st)
 	if img := os.Getenv("K6_IMAGE"); img != "" {
 		mgr.K6Image = img
 	}
@@ -46,7 +55,9 @@ func main() {
 	} else if dk != nil {
 		_, mgr.Chaos.ToolsImages = dk.Self(context.Background())
 	}
-	log.Printf("imagem auxiliar das falhas de rede: %v", mgr.Chaos.ToolsImages)
+	if dk != nil {
+		log.Printf("imagem auxiliar das falhas de rede: %v", mgr.Chaos.ToolsImages)
+	}
 	mgr.Recover(context.Background())
 
 	// IA: a chave vem só do ambiente (.env). Sem chave, o app funciona e o botão da IA avisa.
@@ -63,7 +74,7 @@ func main() {
 		CacheDir: getenv("CODE_CACHE_DIR", filepath.Join(filepath.Dir(dbPath), "code")),
 	}
 
-	srv := &api.Server{Docker: dk, Store: st, Runner: mgr, AI: reg, Code: code}
+	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, AI: reg, Code: code}
 	log.Printf("backend ouvindo em %s (banco: %s)", addr, dbPath)
 	log.Fatal(http.ListenAndServe(addr, srv.Router()))
 }

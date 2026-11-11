@@ -10,6 +10,37 @@ export type Container = {
   service?: string;
 };
 
+// Deployment do Kubernetes candidato a alvo (quando o app roda no cluster).
+export type DeploymentInfo = {
+  namespace: string;
+  name: string;
+  replicas: number;
+  ready: number;
+  images: string[];
+  urls: string[]; // Services que apontam para os pods
+};
+
+export type Platform = 'docker' | 'kubernetes';
+
+export type Target = {
+  platform?: Platform; // vazio = docker
+  container?: string;
+  namespace?: string;
+  deployment?: string;
+  baseUrl: string;
+};
+
+export function targetPlatform(t: Target): Platform {
+  return t.platform || 'docker';
+}
+
+// Nome do alvo para mostrar: o container ou namespace/deployment.
+export function targetName(t: Target): string {
+  return targetPlatform(t) === 'kubernetes' ? `${t.namespace}/${t.deployment}` : t.container ?? '';
+}
+
+export type Health = { status: string; docker: boolean; kubernetes: boolean };
+
 export type Endpoint = {
   method: string;
   path: string;
@@ -37,7 +68,7 @@ export type Fault = {
 export type Scenario = {
   id: string;
   name: string;
-  target: { container: string; baseUrl: string };
+  target: Target;
   mode: Mode;
   endpoints: Endpoint[];
   profile: Profile;
@@ -76,6 +107,8 @@ export type Window = {
   cpu: number;
   memMb: number;
   probe?: Probe;
+  // Kubernetes: pods do Deployment prontos e existentes.
+  pods?: { ready: number; total: number };
 };
 
 export type Probe = { ms: number; status: number; ok: boolean; error?: string };
@@ -191,7 +224,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
+  health: () => call<Health>('GET', '/api/health'),
   containers: () => call<Container[]>('GET', '/api/containers'),
+  deployments: () => call<DeploymentInfo[]>('GET', '/api/deployments'),
   scenarios: () => call<Scenario[]>('GET', '/api/scenarios'),
   scenario: (id: string) => call<Scenario>('GET', `/api/scenarios/${id}`),
   createScenario: (s: Omit<Scenario, 'id'>) => call<Scenario>('POST', '/api/scenarios', s),

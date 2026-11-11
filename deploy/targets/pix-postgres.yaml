@@ -1,0 +1,12 @@
+# Banco do itau-case-pix. Dados em disco do pod (somem ao recriar): é ambiente de teste.
+image: postgres:16-alpine
+replicas: 1
+port: 5432
+env:
+  - { name: POSTGRES_DB, value: pixdb }
+  - { name: POSTGRES_USER, value: pix }
+  - { name: POSTGRES_PASSWORD, value: pix }
+probe: { path: "" }
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
