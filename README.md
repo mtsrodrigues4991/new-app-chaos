@@ -46,7 +46,7 @@ Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos, e a fase A do Kubern
     - **Erro de DNS** (`DNSChaos`): a resolução de nomes falha para os domínios em `patterns` (ex.: `pix-postgres.*`; vazio = todos). Só afeta conexões novas: um pool já aberto (ex.: Hikari com o banco) continua funcionando.
     - **Atraso HTTP** e **aborto HTTP** (`HTTPChaos`): nas requisições que chegam aos pods, filtradas por `port`, `path` e `method`. Não vale para HTTPS. Exigem o módulo `ebtables` no kernel dos nós, que o **WSL2 não tem**: no KIND sobre o WSL2 elas não são aplicadas.
     - As cores seguem o efeito: atrasos usam a cor da latência e erros a da perda; o rótulo do bloco diz qual é a falha e, se for numa dependência, onde (`@ pix-postgres`, ou `→ pix-postgres` só no caminho).
-  - **Falha que não confirma:** se o Chaos Mesh não confirma a injeção em 45 s, a falha fica marcada como "falhou" (com o erro do Chaos Mesh) e a execução segue com as próximas. O recurso é apagado e, se o Chaos Mesh não o liberar, o app tira o finalizer dele para não deixar nada preso no cluster.
+  - **Falha que não confirma:** se o Chaos Mesh não confirma a injeção em 45 s (ou até o fim do bloco, se ele for mais curto), a falha fica marcada como "falhou" (com o erro do Chaos Mesh) e a execução segue com as próximas. O recurso é apagado em segundo plano, sem atrasar as próximas falhas, e, se o Chaos Mesh não o liberar, o app tira o finalizer dele para não deixar nada preso no cluster.
   - O modo Docker não mudou: `docker compose up` continua igual.
 
 Backlog: curva de carga desenhável, falhas combinadas, banda/DNS/disco, falhas na entrada (ingress).

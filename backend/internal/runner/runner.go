@@ -502,7 +502,10 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 		}
 		ev := store.FaultEvent{FaultID: f.ID, Type: f.Type}
 		// Aplica com contexto próprio: um abort no meio não pode deixar a falha "meio aplicada".
-		actx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		// Esperar a confirmação não passa do fim do bloco: uma falha que não entra não pode
+		// empurrar as próximas para fora do horário.
+		wait := min(time.Minute, max(10*time.Second, time.Until(at(f.End()))))
+		actx, cancel := context.WithTimeout(context.Background(), wait)
 		revert, err := target.ApplyFault(actx, runID, f)
 		cancel()
 		if err != nil {

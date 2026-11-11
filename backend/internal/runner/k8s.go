@@ -162,6 +162,29 @@ func podReady(p kube.Pod) bool {
 	return true
 }
 
+// release apaga o recurso em path e, se ele não sumir em 15 polls, tira o finalizer.
+func (p *k8sPlatform) release(ctx context.Context, path string, waitGone func(context.Context) error) error {
+	c := p.kube
+	if err := c.Delete(ctx, path, ""); err != nil {
+		return err
+	}
+	wctx, cancel := context.WithTimeout(ctx, 15*p.Poll)
+	err := waitGone(wctx)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	patch := map[string]any{"metadata": map[string]any{"finalizers": nil}}
+	if err := c.Patch(ctx, path, patch); err != nil && !errors.Is(err, kube.ErrNotFound) {
+		return fmt.Errorf("tirando o finalizer: %w", err)
+	}
+	if err := waitGone(ctx); err != nil {
+		return err
+	}
+	log.Printf("%s removido à força (o Chaos Mesh não o liberou)", path)
+	return nil
+}
+
 // ApplyFault cria o recurso do Chaos Mesh e espera ele confirmar a injeção.
 func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fault) (chaos.Revert, error) {
 	name := chaosmesh.Name("nac", runID, string(f.Type), fmt.Sprint(f.StartSeconds))
@@ -215,29 +238,18 @@ func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fau
 		}
 		return nil
 	}
-	// discard tira do cluster uma falha que não confirmou. Se o Chaos Mesh não libera o
-	// recurso (ele tenta desfazer nos pods onde a injeção falhou e trava no finalizer),
-	// tira o finalizer: senão o recurso fica preso para sempre.
+	// discard tira do cluster uma falha que não confirmou, em segundo plano para não atrasar
+	// as próximas falhas. Se o Chaos Mesh não libera o recurso (ele tenta desfazer nos pods
+	// onde a injeção falhou e trava no finalizer), tira o finalizer: senão ele fica preso.
 	discard := func() string {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		if err := c.Delete(ctx, path, ""); err != nil {
-			return "; não consegui apagar o recurso: " + err.Error()
-		}
-		wctx, wcancel := context.WithTimeout(ctx, 15*t.p.Poll)
-		err := waitGone(wctx)
-		wcancel()
-		if err == nil {
-			return ""
-		}
-		patch := map[string]any{"metadata": map[string]any{"finalizers": nil}}
-		if err := c.Patch(ctx, path, patch); err != nil && !errors.Is(err, kube.ErrNotFound) {
-			return fmt.Sprintf("; o recurso ficou preso no cluster (kubectl get %s %s -n %s): %v", kind.Plural, name, ns, err)
-		}
-		if waitGone(ctx) != nil {
-			return fmt.Sprintf("; o recurso ficou preso no cluster (kubectl get %s %s -n %s)", kind.Plural, name, ns)
-		}
-		return "; o recurso foi removido à força (o Chaos Mesh não o liberou)"
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if err := t.p.release(ctx, path, waitGone); err != nil {
+				log.Printf("%s %s/%s ficou preso no cluster (kubectl get %s %s -n %s): %v", kind.Kind, ns, name, kind.Plural, name, ns, err)
+			}
+		}()
+		return "; o recurso está sendo removido do cluster"
 	}
 	deadline := time.Now().Add(t.p.InjectTimeout)
 	for {
