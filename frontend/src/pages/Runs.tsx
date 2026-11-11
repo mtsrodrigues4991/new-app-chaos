@@ -31,6 +31,7 @@ export default function Runs() {
       {error && <p className="error">Erro: {error}</p>}
       {items.length === 0 && !error && <p className="muted">Nenhuma execução ainda. Rode um cenário.</p>}
       {items.length > 0 && (
+        <div className="card table-card">
         <table>
           <thead>
             <tr>
@@ -57,6 +58,7 @@ export default function Runs() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );
