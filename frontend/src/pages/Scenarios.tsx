@@ -42,6 +42,7 @@ export default function Scenarios() {
       {error && <p className="error">Erro: {error}</p>}
       {items.length === 0 && !error && <p className="muted">Nenhum cenário ainda. Crie um a partir de um alvo.</p>}
       {items.length > 0 && (
+        <div className="card table-card">
         <table>
           <thead>
             <tr>
@@ -72,6 +73,7 @@ export default function Scenarios() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );

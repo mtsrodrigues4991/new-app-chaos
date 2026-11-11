@@ -39,7 +39,7 @@ export function targetName(t: Target): string {
   return targetPlatform(t) === 'kubernetes' ? `${t.namespace}/${t.deployment}` : t.container ?? '';
 }
 
-export type Health = { status: string; docker: boolean; kubernetes: boolean };
+export type Health = { status: string; docker: boolean; kubernetes: boolean; observability?: boolean; namespace?: string };
 
 export type Endpoint = {
   method: string;

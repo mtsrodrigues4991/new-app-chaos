@@ -49,6 +49,7 @@ export default function Targets() {
           {deployments.length === 0 ? (
             <p className="muted">Nenhum Deployment fora dos namespaces do sistema.</p>
           ) : (
+            <div className="card table-card">
             <table>
               <thead>
                 <tr>
@@ -77,6 +78,7 @@ export default function Targets() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </>
       )}
@@ -85,6 +87,7 @@ export default function Targets() {
         <>
           <h2>Containers do Docker</h2>
           <p className="muted">Containers Docker em execução que podem ser testados.</p>
+          <div className="card table-card">
           <table>
             <thead>
               <tr>
@@ -111,6 +114,7 @@ export default function Targets() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </section>

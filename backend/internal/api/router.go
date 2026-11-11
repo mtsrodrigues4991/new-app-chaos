@@ -39,7 +39,11 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docker": s.Docker != nil, "kubernetes": s.Kube != nil})
+		h := map[string]any{"status": "ok", "docker": s.Docker != nil, "kubernetes": s.Kube != nil, "observability": s.Runner != nil && s.Runner.Obs != nil}
+		if s.Kube != nil {
+			h["namespace"] = s.Kube.Namespace()
+		}
+		writeJSON(w, http.StatusOK, h)
 	})
 	r.Get("/api/containers", s.listContainers)
 	r.Get("/api/deployments", s.listDeployments)

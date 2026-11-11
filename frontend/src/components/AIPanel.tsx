@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ChatMessage, Report, RunDetail } from '../api';
 import { faultMeta, faultSummary } from '../faults';
 import RichText from './RichText';
+import Icon from './Icon';
 
 const regressionLabel = { melhorou: '↑ Melhorou', igual: '= Igual', piorou: '↓ Piorou' };
 
@@ -30,9 +31,11 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
   };
 
   return (
-    <section className="ai" id="analise">
-      <div className="title-row">
-        <h2>Análise da IA</h2>
+    <section className="card ai" id="analise">
+      <div className="card-head">
+        <h2>
+          <Icon name="sparkle" /> Análise da IA
+        </h2>
         <button className={rep ? '' : 'primary'} disabled={busy} onClick={analyze}>
           {busy ? 'Analisando…' : rep ? 'Refazer análise' : 'Analisar com IA'}
         </button>
@@ -66,7 +69,7 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
       )}
       {rep && (
         <div className="report">
-          <p className="muted small">
+          <p className="muted small report-meta">
             Gerada em {new Date(rep.createdAt).toLocaleString('pt-BR')} por {rep.usage.model} · {rep.usage.inputTokens.toLocaleString('pt-BR')} tokens de entrada,{' '}
             {rep.usage.outputTokens.toLocaleString('pt-BR')} de saída
             {rep.referenceRunId ? (
@@ -96,78 +99,98 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
               </ul>
             </details>
           )}
-          <h3>Resumo</h3>
-          <RichText text={rep.content.summary} />
-          <h3>Por que a nota ficou assim</h3>
-          <RichText text={rep.content.scoreExplanation} />
-          <h3>Ponto de quebra</h3>
-          <p>
-            <span className={`pill ${rep.content.breakingPoint.found ? 'bad' : 'good'}`}>{rep.content.breakingPoint.found ? 'Encontrado' : 'Não quebrou'}</span>{' '}
-            {rep.content.breakingPoint.description}
-          </p>
-          {rep.content.faultFindings.length > 0 && (
-            <>
-              <h3>Efeito de cada falha</h3>
-              <ul>
-                {rep.content.faultFindings.map((f) => {
-                  const type = run.scenario.faults?.find((x) => x.id === f.faultId)?.type;
-                  return (
-                    <li key={f.faultId}>
-                      {type && <span className="swatch" style={{ ['--c' as string]: faultMeta[type].color }} />} <strong>{faultName(f.faultId)}:</strong> {f.finding}
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-          {rep.content.regression && (
-            <>
-              <h3>Comparação com a referência</h3>
+          <div className="ai-grid">
+            <div>
+              <h3>Resumo</h3>
+              <RichText text={rep.content.summary} />
+              <h3>Por que a nota ficou assim</h3>
+              <RichText text={rep.content.scoreExplanation} />
+            </div>
+            <div>
+              <h3>Ponto de quebra</h3>
               <p>
-                <span className={`pill ${rep.content.regression.verdict === 'piorou' ? 'bad' : rep.content.regression.verdict === 'melhorou' ? 'good' : ''}`}>
-                  {regressionLabel[rep.content.regression.verdict]}
-                </span>{' '}
-                {rep.content.regression.summary}
+                <span className={`pill ${rep.content.breakingPoint.found ? 'bad' : 'good'}`}>{rep.content.breakingPoint.found ? 'Encontrado' : 'Não quebrou'}</span>{' '}
+                {rep.content.breakingPoint.description}
               </p>
-              {rep.content.regression.items.length > 0 && (
-                <ul>
-                  {rep.content.regression.items.map((it, i) => (
-                    <li key={i}>{it}</li>
-                  ))}
-                </ul>
+              {rep.content.faultFindings.length > 0 && (
+                <>
+                  <h3>Efeito de cada falha</h3>
+                  <ul className="findings">
+                    {rep.content.faultFindings.map((f) => {
+                      const type = run.scenario.faults?.find((x) => x.id === f.faultId)?.type;
+                      return (
+                        <li key={f.faultId}>
+                          {type && <span className="swatch" style={{ ['--c' as string]: faultMeta[type].color }} />}
+                          <span>
+                            <strong>{faultName(f.faultId)}:</strong> {f.finding}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
-            </>
-          )}
-          <h3>Causas prováveis</h3>
-          <ol>
-            {rep.content.causes.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ol>
-          <h3>Sugestões de correção</h3>
-          <ol>
-            {rep.content.fixes.map((f, i) => (
-              <li key={i}>
-                <strong>{f.title}.</strong> {f.detail}
-                {f.file && (
-                  <div className="fix-file small">
-                    {f.url ? (
-                      <a href={f.url} target="_blank" rel="noreferrer">
-                        <code>
-                          {f.file}
-                          {f.line ? `:${f.line}` : ''}
-                        </code>
-                      </a>
-                    ) : (
-                      <code>{f.file}</code>
-                    )}
-                    {f.newFile && <span className="muted"> (arquivo novo)</span>}
+              {rep.content.regression && (
+                <>
+                  <h3>Comparação com a referência</h3>
+                  <p>
+                    <span className={`pill ${rep.content.regression.verdict === 'piorou' ? 'bad' : rep.content.regression.verdict === 'melhorou' ? 'good' : ''}`}>
+                      {regressionLabel[rep.content.regression.verdict]}
+                    </span>{' '}
+                    {rep.content.regression.summary}
+                  </p>
+                  {rep.content.regression.items.length > 0 && (
+                    <ul>
+                      {rep.content.regression.items.map((it, i) => (
+                        <li key={i}>{it}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          <div className="ai-grid">
+            <div>
+              <h3>Causas prováveis</h3>
+              {rep.content.causes.map((c, i) => (
+                <div key={i} className="cause">
+                  <span className="num">{i + 1}</span>
+                  <div>
+                    <RichText text={c} />
                   </div>
-                )}
-                {f.code && <pre className="code">{f.code}</pre>}
-              </li>
-            ))}
-          </ol>
+                </div>
+              ))}
+            </div>
+            <div>
+              <h3>Sugestões de correção</h3>
+              {rep.content.fixes.map((f, i) => (
+                <div key={i} className="fix">
+                  <span className="num">{i + 1}</span>
+                  <div>
+                    <div className="fix-title">{f.title}</div>
+                    <RichText text={f.detail} />
+                    {f.file && (
+                      <div className="fix-file small">
+                        {f.url ? (
+                          <a href={f.url} target="_blank" rel="noreferrer">
+                            <code>
+                              {f.file}
+                              {f.line ? `:${f.line}` : ''}
+                            </code>
+                          </a>
+                        ) : (
+                          <code>{f.file}</code>
+                        )}
+                        {f.newFile && <span className="muted"> (arquivo novo)</span>}
+                      </div>
+                    )}
+                    {f.code && <pre className="code">{f.code}</pre>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
       <Chat runId={run.id} hasCode={!!run.scenario.code?.repo} />

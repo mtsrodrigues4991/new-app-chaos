@@ -1,10 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, AppTelemetry, Diagnostics as Diag, PodLog } from '../api';
+import { api, AppTelemetry, Diagnostics as Diag, LogLine, PodLog } from '../api';
 
 // Linhas que costumam explicar uma falha (o mesmo critério que o backend usa para a IA).
 const important = /error|erro|exception|fatal|panic|warn|fail|refused|reset|timeout|timed out|denied|killed|oom|caused by|sqlstate|unavailable|terminat|shutdown/i;
 const MAX_LINES = 2000;
+
+const errorLevel = /\b(error|erro|exception|fatal|panic|fail(ed|ure)?|refused|denied|killed|oom|sqlstate|caused by)\b/i;
+
+// Cor da linha pelo nível: erro em vermelho, outras linhas importantes (avisos, timeouts) em amarelo.
+function levelClass(text: string): string | undefined {
+  if (errorLevel.test(text)) return 'lvl-error';
+  if (important.test(text)) return 'lvl-warn';
+  return undefined;
+}
+
+// Junta linhas seguidas que só mudam em números (horários, ids), mostrando a primeira com ×N.
+function groupRepeats(lines: LogLine[]): { line: LogLine; count: number }[] {
+  const norm = (t: string) => t.replace(/[0-9a-f]{6,}|\d+/gi, '#');
+  const out: { line: LogLine; count: number; key: string }[] = [];
+  for (const l of lines) {
+    const key = norm(l.text);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.count++;
+    else out.push({ line: l, count: 1, key });
+  }
+  return out;
+}
 
 export type FaultSpan = { label: string; from: number; to: number };
 
@@ -17,32 +39,25 @@ function faultAt(spans: FaultSpan[], t: number): string {
     .join(' + ');
 }
 
-// Logs dos containers e eventos do Kubernetes coletados durante a execução.
-export default function Diagnostics({ runId, spans }: { runId: string; spans: FaultSpan[] }) {
+// Logs, eventos e telemetria coletados durante a execução (carregados quando ela termina).
+export function useDiagnostics(runId: string, enabled: boolean) {
   const [diag, setDiag] = useState<Diag | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
+    if (!enabled) return;
     api
       .diagnostics(runId)
       .then(setDiag)
       .catch((e: Error) => setError(e.message));
-  }, [runId]);
-
-  if (error) return <p className="error no-print">Logs e eventos: {error}</p>;
-  if (!diag) return null;
-  return (
-    <>
-      {diag.app && <AppView app={diag.app} spans={spans} />}
-      {(diag.logs.length > 0 || diag.events.length > 0 || !!diag.notes?.length) && <LogsAndEvents diag={diag} spans={spans} />}
-    </>
-  );
+  }, [runId, enabled]);
+  return { diag, error };
 }
 
-function LogsAndEvents({ diag, spans }: { diag: Diag; spans: FaultSpan[] }) {
+export const hasLogs = (d: Diag) => d.logs.length > 0 || d.events.length > 0 || !!d.notes?.length;
+
+export function LogsAndEvents({ diag, spans }: { diag: Diag; spans: FaultSpan[] }) {
   return (
     <section className="diagnostics no-print">
-      <h2>Logs e eventos</h2>
       <p className="muted small">
         Coletados durante a execução, do alvo e das dependências usadas nas falhas. A IA recebe um resumo deles: linhas repetidas juntadas, com
         prioridade para erros, conexões, partidas e paradas. O t é em segundos desde o início, como nos gráficos.
@@ -74,7 +89,7 @@ function LogsAndEvents({ diag, spans }: { diag: Diag; spans: FaultSpan[] }) {
                 <tr key={i}>
                   <td>{fmtT(e.t)}</td>
                   <td className="muted">{faultAt(spans, e.t)}</td>
-                  <td className={e.type === 'Warning' ? 'error' : undefined}>{e.type}</td>
+                  <td className={e.type === 'Warning' ? 'ev-warning' : 'muted'}>{e.type}</td>
                   <td>{e.reason}</td>
                   <td>
                     {e.namespace}/{e.object}
@@ -126,13 +141,14 @@ function LogView({ log, spans }: { log: PodLog; spans: FaultSpan[] }) {
       </div>
       <pre className="code log-lines">
         {tail.length === 0 && <span className="muted">(nenhuma linha)</span>}
-        {tail.map((l, i) => {
+        {groupRepeats(tail).map(({ line: l, count }, i) => {
           const f = faultAt(spans, l.t);
           return (
-            <div key={i} className={important.test(l.text) ? 'error' : undefined}>
-              <span className="muted">{fmtT(l.t).padStart(6)} </span>
+            <div key={i} className={levelClass(l.text)}>
+              <span className="t">{fmtT(l.t).padStart(6)} </span>
               {f && <span className="log-fault">[{f}] </span>}
               {l.text}
+              {count > 1 && <span className="rep">×{count}</span>}
             </div>
           );
         })}
@@ -143,7 +159,7 @@ function LogView({ log, spans }: { log: PodLog; spans: FaultSpan[] }) {
 
 const axis = { stroke: 'var(--axis)', tick: { fill: 'var(--text-secondary)', fontSize: 12 } };
 const tooltipStyle = {
-  contentStyle: { background: 'var(--surface-2)', border: '1px solid var(--grid)', borderRadius: 6 },
+  contentStyle: { background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13 },
   labelStyle: { color: 'var(--text-primary)' },
   itemStyle: { color: 'var(--text-primary)' },
   labelFormatter: (t: number) => `${t} s`,
@@ -151,7 +167,7 @@ const tooltipStyle = {
 const serviceColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 
 // Telemetria da aplicação vinda da stack de observabilidade (OBS=1): métricas, traces e profiling.
-function AppView({ app: raw, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
+export function AppView({ app: raw, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
   // Listas vazias podem vir como null do backend.
   const app = { ...raw, metrics: raw.metrics ?? [], traces: raw.traces ?? [], profiles: raw.profiles ?? [] };
   const charts = useMemo(() => {
@@ -171,7 +187,6 @@ function AppView({ app: raw, spans }: { app: AppTelemetry; spans: FaultSpan[] })
   const empty = charts.length === 0 && app.traces.length === 0 && app.profiles.length === 0;
   return (
     <section className="diagnostics no-print">
-      <h2>Telemetria da aplicação</h2>
       <p className="muted small">
         Da stack de observabilidade (Prometheus, Tempo e Pyroscope), do alvo e das dependências usadas nas falhas. A IA recebe tudo isso.
         {app.grafanaUrl && (
