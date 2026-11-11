@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -27,6 +29,7 @@ type Server struct {
 	Store  *store.Store
 	Runner *runner.Manager
 	AI     *ai.Registry
+	Code   *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
 }
 
 func (s *Server) Router() http.Handler {
@@ -100,6 +103,22 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 	}
 	if sc.Mode == "" {
 		sc.Mode = scenario.ModeLoad
+	}
+	if sc.Code != nil {
+		if strings.TrimSpace(sc.Code.Repo) == "" {
+			sc.Code = nil
+		} else {
+			repo, err := coderepo.NormalizeRepo(sc.Code.Repo)
+			if err != nil {
+				return sc, err
+			}
+			sc.Code.Repo = repo
+			sc.Code.Branch = strings.TrimSpace(sc.Code.Branch)
+			if sc.Code.Branch == "" {
+				sc.Code.Branch = "main"
+			}
+			sc.Code.Path = strings.Trim(strings.TrimSpace(sc.Code.Path), "/")
+		}
 	}
 	return sc, sc.Validate()
 }

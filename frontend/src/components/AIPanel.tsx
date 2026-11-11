@@ -37,7 +37,13 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
           {busy ? 'Analisando…' : rep ? 'Refazer análise' : 'Analisar com IA'}
         </button>
       </div>
-      {busy && <p className="muted">A IA está lendo as métricas da execução. Costuma levar de 30 s a 2 min.</p>}
+      {busy && (
+        <p className="muted">
+          {run.scenario.code?.repo
+            ? 'A IA está lendo as métricas e o código da aplicação. Costuma levar de 1 a 5 min.'
+            : 'A IA está lendo as métricas da execução. Costuma levar de 30 s a 2 min.'}
+        </p>
+      )}
       {error && (
         <p className="error">
           {error}
@@ -72,6 +78,24 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
               ' · sem execução de referência'
             )}
           </p>
+          {rep.code && (
+            <details className="small muted code-read">
+              <summary>
+                Leu {rep.code.filesRead.length} {rep.code.filesRead.length === 1 ? 'arquivo' : 'arquivos'} de{' '}
+                <a href={`https://github.com/${rep.code.repo}/tree/${rep.code.commit}${rep.code.path ? `/${rep.code.path}` : ''}`} target="_blank" rel="noreferrer">
+                  {rep.code.repo}
+                </a>{' '}
+                ({rep.code.branch} @ <code>{rep.code.commit.slice(0, 7)}</code>)
+              </summary>
+              <ul>
+                {rep.code.filesRead.map((f, i) => (
+                  <li key={i}>
+                    <code>{f}</code>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           <h3>Resumo</h3>
           <RichText text={rep.content.summary} />
           <h3>Por que a nota ficou assim</h3>
@@ -125,19 +149,35 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
             {rep.content.fixes.map((f, i) => (
               <li key={i}>
                 <strong>{f.title}.</strong> {f.detail}
+                {f.file && (
+                  <div className="fix-file small">
+                    {f.url ? (
+                      <a href={f.url} target="_blank" rel="noreferrer">
+                        <code>
+                          {f.file}
+                          {f.line ? `:${f.line}` : ''}
+                        </code>
+                      </a>
+                    ) : (
+                      <code>{f.file}</code>
+                    )}
+                  </div>
+                )}
+                {f.code && <pre className="code">{f.code}</pre>}
               </li>
             ))}
           </ol>
         </div>
       )}
-      <Chat runId={run.id} />
+      <Chat runId={run.id} hasCode={!!run.scenario.code?.repo} />
     </section>
   );
 }
 
 const suggestions = ['Por que a nota ficou baixa?', 'O que eu deveria corrigir primeiro?', 'Como esta execução se compara com as anteriores deste cenário?'];
+const codeSuggestions = ['Onde está configurado o timeout do banco?', 'Qual parte do código atende o endpoint mais lento?'];
 
-function Chat({ runId }: { runId: string }) {
+function Chat({ runId, hasCode }: { runId: string; hasCode: boolean }) {
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [pending, setPending] = useState<string | null>(null);
@@ -188,7 +228,7 @@ function Chat({ runId }: { runId: string }) {
           </button>
         )}
       </div>
-      <p className="muted small">A IA vê esta execução, o relatório (se houver), a execução de referência e o histórico deste mesmo cenário. A conversa fica salva aqui.</p>
+      <p className="muted small">A IA vê esta execução, o relatório (se houver), a execução de referência, o histórico deste mesmo cenário e, se o cenário tiver repositório, o código da aplicação. A conversa fica salva aqui.</p>
       <div className="chat-log">
         {msgs.map((m) => (
           <div key={m.id} className={`msg ${m.role}`}>
@@ -205,7 +245,7 @@ function Chat({ runId }: { runId: string }) {
       </div>
       {msgs.length === 0 && !pending && (
         <div className="suggestions">
-          {suggestions.map((s) => (
+          {[...suggestions, ...(hasCode ? codeSuggestions : [])].map((s) => (
             <button key={s} onClick={() => send(s)}>
               {s}
             </button>

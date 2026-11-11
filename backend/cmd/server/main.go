@@ -9,6 +9,7 @@ import (
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/api"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
@@ -55,7 +56,14 @@ func main() {
 	}
 	reg := ai.NewRegistry(ai.NewAnthropic(key))
 
-	srv := &api.Server{Docker: dk, Store: st, Runner: mgr, AI: reg}
+	// Código da aplicação alvo (GitHub), lido pela IA. O token é opcional (repositórios públicos).
+	code := &coderepo.Fetcher{
+		Token:    os.Getenv("GITHUB_TOKEN"),
+		APIBase:  os.Getenv("GITHUB_API_URL"),
+		CacheDir: getenv("CODE_CACHE_DIR", filepath.Join(filepath.Dir(dbPath), "code")),
+	}
+
+	srv := &api.Server{Docker: dk, Store: st, Runner: mgr, AI: reg, Code: code}
 	log.Printf("backend ouvindo em %s (banco: %s)", addr, dbPath)
 	log.Fatal(http.ListenAndServe(addr, srv.Router()))
 }

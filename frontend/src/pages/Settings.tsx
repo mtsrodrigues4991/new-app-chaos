@@ -95,6 +95,21 @@ export default function Settings() {
             </div>
           ))}
       </fieldset>
+      <fieldset>
+        <legend>Código das aplicações (GitHub)</legend>
+        <p className="muted small">
+          Quando um cenário tem repositório, a IA lê o código na análise e no chat. Repositórios públicos funcionam sem token; os privados precisam de um token só de
+          leitura.
+        </p>
+        {s.githubTokenConfigured ? (
+          <p className="small ok-text">✓ Token encontrado (GITHUB_TOKEN no .env).</p>
+        ) : (
+          <p className="small muted">
+            Sem token: só repositórios públicos. Para privados, crie no GitHub um token <em>fine-grained</em> com permissão <em>Contents: Read-only</em> nos
+            repositórios desejados, adicione <code>GITHUB_TOKEN=...</code> no <code>.env</code> e rode <code>docker compose up -d</code>.
+          </p>
+        )}
+      </fieldset>
       {error && <p className="error">Erro: {error}</p>}
       <div className="actions">
         <button className="primary" disabled={saving} onClick={save}>

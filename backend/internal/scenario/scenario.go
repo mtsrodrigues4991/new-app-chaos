@@ -82,6 +82,13 @@ type SLO struct {
 	AvailabilityPct float64 `json:"availabilityPct"` // disponibilidade da sonda, em % (modo só caos)
 }
 
+// CodeRepo aponta o código da aplicação no GitHub.
+type CodeRepo struct {
+	Repo   string `json:"repo"`           // dono/repo
+	Branch string `json:"branch"`         // padrão: main
+	Path   string `json:"path,omitempty"` // subpasta da aplicação (monorepo)
+}
+
 // DefaultSLO são os valores sugeridos ao criar um cenário.
 var DefaultSLO = SLO{P95Ms: 500, ErrorRatePct: 1, AvailabilityPct: 99}
 
@@ -101,6 +108,8 @@ type Scenario struct {
 	ProbePath string `json:"probePath,omitempty"`
 	// SLO ausente (cenários antigos) usa DefaultSLO.
 	SLO *SLO `json:"slo,omitempty"`
+	// Code é o repositório da aplicação alvo, lido pela IA na análise e no chat (opcional).
+	Code *CodeRepo `json:"code,omitempty"`
 	// RequestTimeoutSeconds limita cada requisição da carga; a que estoura conta como erro.
 	RequestTimeoutSeconds int `json:"requestTimeoutSeconds,omitempty"`
 }

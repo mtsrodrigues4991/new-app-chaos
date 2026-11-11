@@ -116,3 +116,72 @@ func TestAnthropicErrors(t *testing.T) {
 		t.Fatalf("esperava recusa: %v", err)
 	}
 }
+
+func sseToolUse(id, name, input string) string {
+	ev := func(n string, v any) string {
+		b, _ := json.Marshal(v)
+		return fmt.Sprintf("event: %s\ndata: %s\n\n", n, b)
+	}
+	return ev("message_start", map[string]any{"type": "message_start", "message": map[string]any{
+		"id": "msg_t", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": []any{},
+		"usage": map[string]any{"input_tokens": 10, "output_tokens": 0}}}) +
+		ev("content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "tool_use", "id": id, "name": name, "input": map[string]any{}}}) +
+		ev("content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": input}}) +
+		ev("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}) +
+		ev("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "tool_use"}, "usage": map[string]any{"output_tokens": 5}}) +
+		ev("message_stop", map[string]any{"type": "message_stop"})
+}
+
+func TestAnthropicToolLoop(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(b, &body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch len(bodies) {
+		case 1:
+			io.WriteString(w, sseToolUse("tu_1", "read_file", `{"path":"App.java"}`))
+		case 2:
+			io.WriteString(w, sseToolUse("tu_2", "nao_existe", `{}`))
+		default:
+			io.WriteString(w, sse("pronto", "end_turn"))
+		}
+	}))
+	defer srv.Close()
+
+	var got string
+	p := NewAnthropic("k", option.WithBaseURL(srv.URL))
+	resp, err := p.Generate(context.Background(), Request{
+		Model: "claude-opus-5-5", System: "s", Messages: []Message{{Role: "user", Content: "analise"}},
+		Tools: []Tool{{Name: "read_file", Description: "lê", Properties: map[string]any{"path": map[string]any{"type": "string"}}, Required: []string{"path"},
+			Run: func(_ context.Context, in json.RawMessage) (string, error) {
+				got = string(in)
+				return "1  class App {}", nil
+			}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "pronto" || resp.ToolCalls != 2 || got != `{"path":"App.java"}` || resp.OutputTokens != 17 {
+		t.Fatalf("resposta: %+v, entrada da ferramenta %q", resp, got)
+	}
+	if len(bodies) != 3 {
+		t.Fatalf("esperava 3 chamadas, veio %d", len(bodies))
+	}
+	tools, _ := bodies[0]["tools"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["eager_input_streaming"] != true || bodies[0]["cache_control"] == nil {
+		t.Fatalf("definição das ferramentas: %v cache=%v", tools, bodies[0]["cache_control"])
+	}
+	msgs := bodies[1]["messages"].([]any)
+	last := msgs[len(msgs)-1].(map[string]any)["content"].([]any)[0].(map[string]any)
+	if len(msgs) != 3 || last["type"] != "tool_result" || last["tool_use_id"] != "tu_1" {
+		t.Fatalf("segunda chamada deveria trazer o resultado da ferramenta: %v", msgs)
+	}
+	msgs = bodies[2]["messages"].([]any)
+	last = msgs[len(msgs)-1].(map[string]any)["content"].([]any)[0].(map[string]any)
+	if last["is_error"] != true {
+		t.Fatalf("ferramenta desconhecida deveria voltar como erro: %v", last)
+	}
+}
