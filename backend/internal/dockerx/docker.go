@@ -5,6 +5,7 @@
 package dockerx
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ErrNotFound indica que o container ou a imagem não existe.
@@ -229,6 +231,7 @@ type RunSpec struct {
 	Network    string // rede principal do container
 	Role       string // valor do label LabelRole
 	RunID      string
+	CapAdd     []string // ex.: NET_ADMIN para o tc
 }
 
 // Create cria (sem iniciar) um container auxiliar e devolve o id.
@@ -241,6 +244,7 @@ func (c *Client) Create(ctx context.Context, spec RunSpec) (string, error) {
 		"Labels":     map[string]string{LabelRole: spec.Role, "new-app-chaos.run": spec.RunID},
 		"HostConfig": map[string]any{
 			"NetworkMode": spec.Network,
+			"CapAdd":      spec.CapAdd,
 			// Log pequeno e rotativo: o k6 roda em modo silencioso, mas um erro não pode encher o disco.
 			"LogConfig": map[string]any{"Type": "json-file", "Config": map[string]string{"max-size": "1m", "max-file": "1"}},
 		},
@@ -470,4 +474,104 @@ func (c *Client) RemoveByRole(ctx context.Context, role string) (int, error) {
 		}
 	}
 	return len(list), nil
+}
+
+// StopNow derruba o container na hora (SIGKILL) marcando-o como parado manualmente,
+// para que uma restart policy (always, unless-stopped) não o suba sozinho durante a falha.
+func (c *Client) StopNow(ctx context.Context, id string) error {
+	// 304 (já parado) não é erro: request aceita NotModified.
+	return c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/stop?signal=SIGKILL&t=0", nil, nil)
+}
+
+// PutFile copia um arquivo para dir dentro do container (que precisa existir).
+func (c *Client) PutFile(ctx context.Context, id, dir, name string, data []byte, mode int64) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(data)), ModTime: time.Now()}); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		"http://docker/containers/"+url.PathEscape(id)+"/archive?path="+url.QueryEscape(dir), &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var e struct{ Message string }
+		if json.Unmarshal(msg, &e) == nil && e.Message != "" {
+			return fmt.Errorf("copiando %s para o container: %s", name, e.Message)
+		}
+		return fmt.Errorf("copiando %s para o container: status %d", name, resp.StatusCode)
+	}
+	return nil
+}
+
+// Exec roda um comando dentro do container. Com detach=true, retorna logo depois de
+// iniciar (código -1 se ainda está rodando); senão espera e devolve código e saída.
+func (c *Client) Exec(ctx context.Context, id string, cmd []string, detach bool) (int, string, error) {
+	var created struct {
+		ID string `json:"Id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/exec", map[string]any{
+		"Cmd": cmd, "AttachStdout": !detach, "AttachStderr": !detach,
+	}, &created); err != nil {
+		return 0, "", err
+	}
+	var out tailBuffer
+	if detach {
+		if err := c.do(ctx, http.MethodPost, "/exec/"+created.ID+"/start", map[string]any{"Detach": true}, nil); err != nil {
+			return 0, "", err
+		}
+		// Dá um instante para um erro imediato (binário que não executa, parâmetro ruim) aparecer.
+		time.Sleep(300 * time.Millisecond)
+	} else {
+		resp, err := c.request(ctx, http.MethodPost, "/exec/"+created.ID+"/start", map[string]any{"Detach": false})
+		if err != nil {
+			return 0, "", err
+		}
+		err = demux(resp.Body, &out, &out)
+		resp.Body.Close()
+		if err != nil {
+			return 0, "", err
+		}
+	}
+	var st struct {
+		Running  bool `json:"Running"`
+		ExitCode int  `json:"ExitCode"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/exec/"+created.ID+"/json", nil, &st); err != nil {
+		return 0, "", err
+	}
+	if st.Running {
+		return -1, out.String(), nil
+	}
+	return st.ExitCode, out.String(), nil
+}
+
+// Self devolve id e imagem do container onde o backend roda (vazio se roda fora do Docker).
+func (c *Client) Self(ctx context.Context) (id, image string) {
+	host, err := os.Hostname()
+	if err != nil {
+		return "", ""
+	}
+	var raw struct {
+		ID    string `json:"Id"`
+		Image string `json:"Image"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(host)+"/json", nil, &raw); err != nil {
+		return "", ""
+	}
+	return raw.ID, raw.Image
 }

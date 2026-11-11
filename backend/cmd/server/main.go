@@ -36,6 +36,13 @@ func main() {
 	if img := os.Getenv("K6_IMAGE"); img != "" {
 		mgr.K6Image = img
 	}
+	// Injeção de falhas: o stressor vai junto na imagem do backend, e a própria imagem do
+	// backend (que tem tc) serve de auxiliar de rede. Fora do Docker, use as variáveis.
+	mgr.Chaos.StressorPath = getenv("STRESSOR_PATH", "/usr/local/lib/new-app-chaos/stressor")
+	mgr.Chaos.ToolsImage = os.Getenv("TOOLS_IMAGE")
+	if mgr.Chaos.ToolsImage == "" && dk != nil {
+		_, mgr.Chaos.ToolsImage = dk.Self(context.Background())
+	}
 	mgr.Recover(context.Background())
 
 	srv := &api.Server{Docker: dk, Store: st, Runner: mgr}

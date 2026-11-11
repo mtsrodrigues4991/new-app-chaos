@@ -42,3 +42,54 @@ func TestValidate(t *testing.T) {
 		t.Fatal("esperava erro")
 	}
 }
+
+func TestValidateFaults(t *testing.T) {
+	base := Scenario{
+		Name:      "caos",
+		Target:    Target{Container: "demo-api", BaseURL: "http://demo-api:8080"},
+		Mode:      ModeChaos,
+		ProbePath: "/health",
+		Profile:   Profile{DurationSeconds: 60},
+		Faults: []Fault{
+			{ID: "a", Type: FaultLatency, StartSeconds: 5, DurationSeconds: 10, Params: map[string]string{ParamLatency: "300"}},
+			{ID: "b", Type: FaultMemStress, StartSeconds: 20, DurationSeconds: 10, Params: map[string]string{ParamMemBytes: "50%"}},
+			{ID: "c", Type: FaultKillRestart, StartSeconds: 40, DurationSeconds: 5},
+		},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("modo só caos sem endpoints/VUs deveria ser válido: %v", err)
+	}
+	cases := map[string]func(s *Scenario){
+		"sobreposição":      func(s *Scenario) { s.Faults[1].StartSeconds = 10 },
+		"passa do fim":      func(s *Scenario) { s.Faults[2].DurationSeconds = 30 },
+		"parâmetro ruim":    func(s *Scenario) { s.Faults[0].Params[ParamLatency] = "abc" },
+		"memória ruim":      func(s *Scenario) { s.Faults[1].Params[ParamMemBytes] = "150%" },
+		"sem sonda":         func(s *Scenario) { s.ProbePath = "" },
+		"sem falhas":        func(s *Scenario) { s.Faults = nil },
+		"tipo desconhecido": func(s *Scenario) { s.Faults[0].Type = "x" },
+	}
+	for name, mut := range cases {
+		s := base
+		s.Faults = nil
+		for _, f := range base.Faults {
+			p := map[string]string{}
+			for k, v := range f.Params {
+				p[k] = v
+			}
+			f.Params = p
+			s.Faults = append(s.Faults, f)
+		}
+		mut(&s)
+		if err := s.Validate(); err == nil {
+			t.Errorf("%s: esperava erro", name)
+		}
+	}
+	// No modo só carga, as falhas não são validadas (ficam guardadas, mas não rodam).
+	load := base
+	load.Mode = ModeLoad
+	load.Endpoints = []Endpoint{{Method: "GET", Path: "/", Weight: 1}}
+	load.Profile = Profile{Type: ProfileRamp, VUs: 5, DurationSeconds: 30}
+	if err := load.Validate(); err != nil {
+		t.Fatalf("modo carga: %v", err)
+	}
+}

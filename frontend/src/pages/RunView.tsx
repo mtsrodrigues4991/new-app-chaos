@@ -6,13 +6,15 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, LiveEvent, Run, RunDetail, RunStatus, Window } from '../api';
-import { profileLabel } from './ScenarioEditor';
+import { api, Fault, FaultEvent, FaultState, LiveEvent, Run, RunDetail, RunStatus, Window } from '../api';
+import { faultMeta, faultSummary } from '../faults';
+import { modeLabel, profileLabel } from './ScenarioEditor';
 
 const statusLabel: Record<RunStatus, string> = {
   pending: 'Preparando',
@@ -53,6 +55,27 @@ function mergeWindows(prev: Window[], next: Window[]): Window[] {
   return [...byT.values()].sort((a, b) => a.t - b.t);
 }
 
+function mergeFault(prev: FaultEvent[], ev: FaultEvent): FaultEvent[] {
+  return [...prev.filter((f) => f.faultId !== ev.faultId), ev];
+}
+
+// Faixa de cada falha nos gráficos: instantes reais quando já aplicada, senão o planejado.
+type Band = { fault: Fault; x1: number; x2: number; ev: FaultEvent | undefined };
+
+function bands(run: RunDetail): Band[] {
+  if (run.scenario.mode === 'load') return [];
+  return (run.scenario.faults ?? [])
+    .map((f) => {
+      const ev = run.faultEvents.find((e) => e.faultId === f.id);
+      if (ev?.state === 'skipped') return null;
+      const x1 = ev?.appliedAt ?? f.startSeconds;
+      // Ativa: mostra até o fim planejado (a reversão real chega com o evento seguinte).
+      const x2 = ev?.revertedAt ?? Math.max(x1 + 0.5, f.startSeconds + f.durationSeconds);
+      return { fault: f, x1, x2, ev };
+    })
+    .filter((b): b is Band => b !== null);
+}
+
 export default function RunView({ id }: { id: string }) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +97,7 @@ export default function RunView({ id }: { id: string }) {
           setRun((cur) => {
             if (!cur) return cur;
             if (ev.type === 'windows') return { ...cur, windows: mergeWindows(cur.windows, ev.windows) };
+            if (ev.type === 'fault') return { ...cur, faultEvents: mergeFault(cur.faultEvents ?? [], ev.fault) };
             const startedAt = cur.startedAt ?? (ev.status === 'running' ? new Date().toISOString() : undefined);
             return { ...cur, status: ev.status, error: ev.error, startedAt };
           });
@@ -109,6 +133,8 @@ export default function RunView({ id }: { id: string }) {
   };
 
   const p = run.scenario.profile;
+  const mode = run.scenario.mode || 'load';
+  const bs = bands(run);
   return (
     <section>
       <div className="title-row">
@@ -121,15 +147,17 @@ export default function RunView({ id }: { id: string }) {
         )}
       </div>
       <p className="muted">
-        {run.scenario.target.baseUrl} · {profileLabel[p.type]}, {p.vus} VUs, {p.durationSeconds} s · iniciada em{' '}
+        {modeLabel[mode]} · {run.scenario.target.baseUrl}
+        {mode === 'chaos' ? ` · sonda ${run.scenario.probePath}` : ` · ${profileLabel[p.type]}, ${p.vus} VUs`} · {p.durationSeconds} s · iniciada em{' '}
         {new Date(run.createdAt).toLocaleString('pt-BR')} · duração {duration(run)} ·{' '}
         <a href={`#/cenarios/${run.scenarioId}`}>editar cenário</a>
       </p>
-      {run.status === 'pending' && <p className="muted">Preparando o k6 (na primeira vez ele baixa a imagem, pode levar um minuto)…</p>}
+      {run.status === 'pending' && mode !== 'chaos' && <p className="muted">Preparando o k6 (na primeira vez ele baixa a imagem, pode levar um minuto)…</p>}
       {run.error && <p className="error">{run.error}</p>}
       {actionError && <p className="error">Não foi possível abortar: {actionError}</p>}
-      <Summary windows={run.windows} />
-      <Charts windows={run.windows} />
+      {mode === 'chaos' ? <ProbeSummary windows={run.windows} /> : <Summary windows={run.windows} />}
+      {bs.length > 0 && <FaultList bands={bs} />}
+      <Charts windows={run.windows} bands={bs} chaosOnly={mode === 'chaos'} duration={p.durationSeconds} />
     </section>
   );
 }
@@ -163,6 +191,76 @@ function Summary({ windows }: { windows: Window[] }) {
   );
 }
 
+const faultStateLabel: Record<FaultState, string> = {
+  active: '● ativa agora',
+  reverted: '✓ revertida',
+  failed: '✕ falhou',
+  skipped: '— não executada',
+};
+
+const secs = (v?: number) => (v === undefined ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s`);
+
+function FaultList({ bands }: { bands: Band[] }) {
+  return (
+    <table className="fault-list">
+      <thead>
+        <tr>
+          <th>Falha</th>
+          <th>Planejada</th>
+          <th>Aplicada em</th>
+          <th>Revertida em</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {bands.map(({ fault: f, ev }) => (
+          <tr key={f.id}>
+            <td>
+              <span className="swatch" style={{ ['--c' as string]: faultMeta[f.type].color }} /> {faultSummary(f)}
+            </td>
+            <td>
+              {f.startSeconds} s → {f.startSeconds + f.durationSeconds} s
+            </td>
+            <td>{secs(ev?.appliedAt)}</td>
+            <td>{secs(ev?.revertedAt)}</td>
+            <td className={ev?.state === 'failed' ? 'error' : ''}>
+              {ev ? faultStateLabel[ev.state] : 'aguardando'}
+              {ev?.error && <div className="small">{ev.error}</div>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ProbeSummary({ windows }: { windows: Window[] }) {
+  const s = useMemo(() => {
+    const probes = windows.flatMap((w) => (w.probe ? [w.probe] : []));
+    const ok = probes.filter((p) => p.ok);
+    const ms = ok.map((p) => p.ms).sort((a, b) => a - b);
+    return {
+      total: probes.length,
+      avail: probes.length ? ok.length / probes.length : 0,
+      failed: probes.length - ok.length,
+      med: ms.length ? ms[Math.floor(ms.length / 2)] : 0,
+      worst: ms.length ? ms[ms.length - 1] : 0,
+      cpuMax: Math.max(0, ...windows.map((w) => w.cpu)),
+      memMax: Math.max(0, ...windows.map((w) => w.memMb)),
+    };
+  }, [windows]);
+  const n = (v: number, d = 0) => v.toLocaleString('pt-BR', { maximumFractionDigits: d, minimumFractionDigits: d });
+  return (
+    <div className="tiles">
+      <Tile label="Disponibilidade" value={`${n(s.avail * 100, 1)}%`} hint={`${s.total} sondas`} />
+      <Tile label="Sondas com falha" value={n(s.failed)} hint="sem resposta ou status ≥ 400" />
+      <Tile label="Latência típica" value={`${n(s.med, 1)} ms`} hint={`pior resposta: ${n(s.worst, 1)} ms`} />
+      <Tile label="CPU do alvo (pico)" value={`${n(s.cpuMax, 1)}%`} hint="100% = 1 núcleo" />
+      <Tile label="Memória do alvo (pico)" value={`${n(s.memMax, 1)} MB`} />
+    </div>
+  );
+}
+
 function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="tile">
@@ -181,23 +279,48 @@ const tooltipStyle = {
   labelFormatter: (t: number) => `${t} s`,
 };
 
-function ChartCard({ title, children, wide }: { title: string; children: ReactNode; wide?: boolean }) {
+function ChartCard({ title, children, wide, height = 220 }: { title: string; children: ReactNode; wide?: boolean; height?: number }) {
   return (
     <div className={`chart ${wide ? 'wide' : ''}`}>
       <div className="chart-title">{title}</div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={height}>
         {children as React.ReactElement}
       </ResponsiveContainer>
     </div>
   );
 }
 
-function Charts({ windows }: { windows: Window[] }) {
+function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; bands: Band[]; chaosOnly: boolean; duration: number }) {
   if (windows.length === 0) return <p className="muted">Aguardando as primeiras métricas…</p>;
-  const data = windows.map((w) => ({ ...w, errPct: Math.round(w.errorRate * 10000) / 100 }));
+  const data = windows.map((w) => ({
+    ...w,
+    errPct: Math.round(w.errorRate * 10000) / 100,
+    probeMs: w.probe?.ok ? w.probe.ms : null,
+    probeOk: w.probe?.ok ? 1 : 0,
+    probeFail: w.probe && !w.probe.ok ? 1 : 0,
+    probeInfo: w.probe ? (w.probe.ok ? `${w.probe.status}` : w.probe.error || `${w.probe.status}`) : '',
+  }));
+  const last = windows[windows.length - 1].t;
   const common = { data, syncId: 'run', margin: { top: 8, right: 16, bottom: 0, left: 0 } };
-  const x = <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} unit=" s" {...axis} />;
+  const x = <XAxis dataKey="t" type="number" domain={[0, Math.max(duration, last)]} unit=" s" {...axis} />;
   const grid = <CartesianGrid stroke="var(--grid)" vertical={false} />;
+  // Faixas das falhas atrás das séries; o rótulo só no primeiro gráfico para não poluir.
+  const areas = (labeled = false) =>
+    bands.map((b) => (
+      <ReferenceArea
+        key={b.fault.id}
+        x1={b.x1}
+        x2={b.x2}
+        ifOverflow="extendDomain"
+        fill={faultMeta[b.fault.type].color}
+        // Ainda não aplicada: faixa tracejada e mais clara (é só o planejado).
+        fillOpacity={b.ev ? 0.14 : 0.05}
+        stroke={faultMeta[b.fault.type].color}
+        strokeOpacity={0.5}
+        strokeDasharray={b.ev ? undefined : '4 3'}
+        label={labeled ? { value: faultMeta[b.fault.type].short, position: 'insideTopLeft', fill: 'var(--text-secondary)', fontSize: 12 } : undefined}
+      />
+    ));
   const line = (key: string, name: string, color: string, unit = '') => (
     <Line
       type="monotone"
@@ -210,12 +333,72 @@ function Charts({ windows }: { windows: Window[] }) {
       isAnimationActive={false}
     />
   );
+  const resources = (
+    <>
+      <ChartCard title="CPU do container alvo (%, 100 = 1 núcleo)">
+        <LineChart {...common}>
+          {grid}
+          {x}
+          {areas()}
+          <YAxis width={48} {...axis} />
+          <Tooltip {...tooltipStyle} />
+          {line('cpu', 'CPU', 'var(--series-1)', '%')}
+        </LineChart>
+      </ChartCard>
+      <ChartCard title="Memória do container alvo (MB)">
+        <LineChart {...common}>
+          {grid}
+          {x}
+          {areas()}
+          <YAxis width={48} {...axis} />
+          <Tooltip {...tooltipStyle} />
+          {line('memMb', 'Memória', 'var(--series-1)', ' MB')}
+        </LineChart>
+      </ChartCard>
+    </>
+  );
+
+  if (chaosOnly) {
+    return (
+      <div className="charts">
+        <ChartCard title="Latência da sonda (ms, só respostas com sucesso)" wide>
+          <LineChart {...common}>
+            {grid}
+            {x}
+            {areas(true)}
+            <YAxis width={48} {...axis} />
+            <Tooltip {...tooltipStyle} />
+            <Line type="monotone" dataKey="probeMs" name="Latência" unit=" ms" stroke="var(--series-1)" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
+          </LineChart>
+        </ChartCard>
+        <ChartCard title="Resultado da sonda (1 por segundo)" wide height={110}>
+          <BarChart {...common} barCategoryGap={1}>
+            {grid}
+            {x}
+            {areas()}
+            <YAxis width={48} domain={[0, 1]} tick={false} {...{ stroke: axis.stroke }} />
+            <Tooltip
+              {...tooltipStyle}
+              cursor={{ fill: 'var(--grid)' }}
+              formatter={(v: number, name: string, item: { payload?: { probeInfo?: string } }) => (v ? [item.payload?.probeInfo ?? '', name] : [null, null])}
+            />
+            <Legend verticalAlign="top" align="right" height={24} />
+            <Bar dataKey="probeOk" name="Respondeu" stackId="p" fill="var(--status-good)" isAnimationActive={false} />
+            <Bar dataKey="probeFail" name="Falhou" stackId="p" fill="var(--status-critical)" isAnimationActive={false} />
+          </BarChart>
+        </ChartCard>
+        {resources}
+      </div>
+    );
+  }
+
   return (
     <div className="charts">
       <ChartCard title="Latência (ms)" wide>
         <LineChart {...common}>
           {grid}
           {x}
+          {areas(true)}
           <YAxis width={48} {...axis} />
           <Tooltip {...tooltipStyle} />
           <Legend />
@@ -228,6 +411,7 @@ function Charts({ windows }: { windows: Window[] }) {
         <LineChart {...common}>
           {grid}
           {x}
+          {areas()}
           <YAxis width={48} {...axis} />
           <Tooltip {...tooltipStyle} />
           {line('rps', 'RPS', 'var(--series-1)')}
@@ -237,6 +421,7 @@ function Charts({ windows }: { windows: Window[] }) {
         <LineChart {...common}>
           {grid}
           {x}
+          {areas()}
           <YAxis width={48} allowDecimals={false} {...axis} />
           <Tooltip {...tooltipStyle} />
           <Line type="stepAfter" dataKey="vus" name="VUs" stroke="var(--series-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -246,6 +431,7 @@ function Charts({ windows }: { windows: Window[] }) {
         <BarChart {...common} barCategoryGap={1}>
           {grid}
           {x}
+          {areas()}
           <YAxis width={48} {...axis} />
           <Tooltip {...tooltipStyle} cursor={{ fill: 'var(--grid)' }} />
           <Legend />
@@ -260,29 +446,13 @@ function Charts({ windows }: { windows: Window[] }) {
         <LineChart {...common}>
           {grid}
           {x}
+          {areas()}
           <YAxis width={48} domain={[0, 'auto']} {...axis} />
           <Tooltip {...tooltipStyle} />
           {line('errPct', 'Erro', 'var(--status-critical)', '%')}
         </LineChart>
       </ChartCard>
-      <ChartCard title="CPU do container alvo (%, 100 = 1 núcleo)">
-        <LineChart {...common}>
-          {grid}
-          {x}
-          <YAxis width={48} {...axis} />
-          <Tooltip {...tooltipStyle} />
-          {line('cpu', 'CPU', 'var(--series-1)', '%')}
-        </LineChart>
-      </ChartCard>
-      <ChartCard title="Memória do container alvo (MB)">
-        <LineChart {...common}>
-          {grid}
-          {x}
-          <YAxis width={48} {...axis} />
-          <Tooltip {...tooltipStyle} />
-          {line('memMb', 'Memória', 'var(--series-1)', ' MB')}
-        </LineChart>
-      </ChartCard>
+      {resources}
     </div>
   );
 }

@@ -65,12 +65,13 @@ const (
 )
 
 // Fault é uma falha posicionada na linha do tempo (marco 3).
+// Os nomes dos parâmetros seguem os do krkn (ver faults.go).
 type Fault struct {
 	ID              string            `json:"id"`
 	Type            FaultType         `json:"type"`
 	StartSeconds    int               `json:"startSeconds"`    // a partir do início da execução
 	DurationSeconds int               `json:"durationSeconds"` // depois disso a falha é revertida
-	Params          map[string]string `json:"params"`          // ex.: {"delayMs":"200"}
+	Params          map[string]string `json:"params"`          // ex.: {"latency":"200"}
 }
 
 // SLO é um critério de aprovação usado no veredito (marco 4).
@@ -89,8 +90,24 @@ type Scenario struct {
 	Endpoints []Endpoint `json:"endpoints"`
 	Profile   Profile    `json:"profile"`
 	Faults    []Fault    `json:"faults,omitempty"`
-	SLOs      []SLO      `json:"slos,omitempty"`
+	// ProbePath é o endpoint consultado a cada 1 s no modo só caos (ex.: /health).
+	ProbePath string `json:"probePath,omitempty"`
+	SLOs      []SLO  `json:"slos,omitempty"`
 }
+
+// EffectiveMode trata cenários antigos (sem modo) como só carga.
+func (s Scenario) EffectiveMode() Mode {
+	if s.Mode == "" {
+		return ModeLoad
+	}
+	return s.Mode
+}
+
+// HasLoad indica se a execução sobe o k6.
+func (s Scenario) HasLoad() bool { m := s.EffectiveMode(); return m == ModeLoad || m == ModeBoth }
+
+// HasChaos indica se a execução injeta as falhas da linha do tempo.
+func (s Scenario) HasChaos() bool { m := s.EffectiveMode(); return m == ModeChaos || m == ModeBoth }
 
 // Validate confere o mínimo para o cenário poder rodar.
 func (s Scenario) Validate() error {
@@ -104,27 +121,43 @@ func (s Scenario) Validate() error {
 	if !strings.HasPrefix(s.Target.BaseURL, "http://") && !strings.HasPrefix(s.Target.BaseURL, "https://") {
 		errs = append(errs, "URL base deve começar com http:// ou https://")
 	}
-	if len(s.Endpoints) == 0 {
-		errs = append(errs, "adicione pelo menos um endpoint")
-	}
-	for i, e := range s.Endpoints {
-		if !strings.HasPrefix(e.Path, "/") {
-			errs = append(errs, fmt.Sprintf("endpoint %d: caminho deve começar com /", i+1))
-		}
-		switch strings.ToUpper(e.Method) {
-		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
-		default:
-			errs = append(errs, fmt.Sprintf("endpoint %d: método inválido %q", i+1, e.Method))
-		}
-	}
-	if s.Profile.VUs < 1 || s.Profile.VUs > 5000 {
-		errs = append(errs, "VUs deve estar entre 1 e 5000")
+	switch s.EffectiveMode() {
+	case ModeLoad, ModeChaos, ModeBoth:
+	default:
+		errs = append(errs, fmt.Sprintf("modo desconhecido: %q", s.Mode))
 	}
 	if s.Profile.DurationSeconds < 10 || s.Profile.DurationSeconds > 3600 {
 		errs = append(errs, "duração deve estar entre 10 s e 3600 s")
 	}
-	if _, err := s.Profile.Stages(); err != nil {
-		errs = append(errs, err.Error())
+	if s.HasLoad() {
+		if len(s.Endpoints) == 0 {
+			errs = append(errs, "adicione pelo menos um endpoint")
+		}
+		for i, e := range s.Endpoints {
+			if !strings.HasPrefix(e.Path, "/") {
+				errs = append(errs, fmt.Sprintf("endpoint %d: caminho deve começar com /", i+1))
+			}
+			switch strings.ToUpper(e.Method) {
+			case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+			default:
+				errs = append(errs, fmt.Sprintf("endpoint %d: método inválido %q", i+1, e.Method))
+			}
+		}
+		if s.Profile.VUs < 1 || s.Profile.VUs > 5000 {
+			errs = append(errs, "VUs deve estar entre 1 e 5000")
+		}
+		if _, err := s.Profile.Stages(); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	if s.EffectiveMode() == ModeChaos && !strings.HasPrefix(s.ProbePath, "/") {
+		errs = append(errs, "no modo só caos, informe o endpoint da sonda (ex.: /health)")
+	}
+	if s.HasChaos() {
+		if len(s.Faults) == 0 {
+			errs = append(errs, "adicione pelo menos uma falha na linha do tempo")
+		}
+		errs = append(errs, validateFaults(s.Faults, s.Profile.DurationSeconds)...)
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
