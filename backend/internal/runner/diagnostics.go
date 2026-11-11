@@ -112,11 +112,13 @@ func (t *k8sTarget) Snapshot(ctx context.Context, started time.Time) {
 		c.sctx, c.stop = context.WithTimeout(context.Background(), 6*time.Hour)
 	}
 	alive := map[string]bool{}
+	listed := map[string]bool{} // grupos (role) cuja lista de pods veio nesta coleta
 	for _, g := range t.groupsOf(ctx) {
 		pods, err := t.p.kube.ListPods(ctx, g.ns, g.selector)
 		if err != nil {
 			continue // tenta de novo na próxima coleta
 		}
+		listed[g.role] = true
 		for _, p := range pods {
 			alive[g.ns+"/"+p.Metadata.Name] = true
 			for _, cs := range p.Status.ContainerStatuses {
@@ -137,9 +139,11 @@ func (t *k8sTarget) Snapshot(ctx context.Context, started time.Time) {
 			}
 		}
 	}
+	// Só conclui que um pod sumiu quando a lista do grupo dele veio (uma coleta cancelada no
+	// fim da execução não pode marcar todos como apagados).
 	for _, l := range c.logs {
-		if !alive[l.Namespace+"/"+l.Pod] {
-			l.Gone = true
+		if listed[l.Role] {
+			l.Gone = !alive[l.Namespace+"/"+l.Pod]
 		}
 	}
 }

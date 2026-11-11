@@ -31,6 +31,10 @@ func TestK8sDiagnostics(t *testing.T) {
 	}
 	c := tg.(Collector)
 	c.Snapshot(context.Background(), started)
+	// Uma coleta que falha (ctx cancelado no fim da execução) não marca ninguém como apagado.
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Snapshot(cctx, started)
 	// O kill apaga o pod do banco: o log dele tem que continuar na coleta final, marcado.
 	f.Remove(kubefake.Ref{GV: "v1", Plural: "pods"}, "pix", "pix-postgres-0")
 	ev := func(name, typ, reason string, at time.Time) kubefake.Obj {
