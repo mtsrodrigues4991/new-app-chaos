@@ -40,6 +40,12 @@ Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos, e a fase A do Kubern
   - **Falhas pelo Chaos Mesh:** latência e perda viram `NetworkChaos`, CPU e memória viram `StressChaos` e o kill vira `PodChaos pod-kill`. Cada falha tem a opção **um pod (sorteado) ou todos os pods**; o padrão é todos, e no kill é um. O recurso é criado no início do bloco, o app espera o Chaos Mesh confirmar a injeção e apaga no fim. O `duration` do recurso é o bloco + 30 s, uma rede de segurança se o backend cair.
   - **Recursos:** CPU e memória somadas de todos os pods do Deployment (metrics-server, que atualiza a cada ~15 s) e um gráfico de **pods prontos x existentes**, que mostra a recuperação depois de um kill. A IA recebe as mesmas colunas.
   - No kill do Kubernetes o pod é apagado no início do bloco e o Deployment recria sozinho; o bloco é o tempo em que a recuperação é observada (no Docker o container fica parado até o fim do bloco).
+  - **Falhas em dependências (fase B):** cada falha tem "Aplicar em": o alvo ou outro Deployment do cluster usado por ele (ex.: `pix/pix-postgres`). A carga continua no alvo e o veredito mede o efeito nele. Latência e perda podem ficar **só no caminho do alvo até a dependência** (NetworkChaos com `target`): o resto do tráfego segue normal.
+  - **Falhas só do Kubernetes (fase B):**
+    - **Atraso de disco** e **erro de disco** (`IOChaos`): num volume do container (`volume-path`, ex.: `/var/lib/postgresql/data`; o Postgres do pix já sobe com esse volume), com `delay`, `errno` (5 = EIO) e `percent` das operações.
+    - **Erro de DNS** (`DNSChaos`): a resolução de nomes falha para os domínios em `patterns` (ex.: `pix-postgres.*`; vazio = todos).
+    - **Atraso HTTP** e **aborto HTTP** (`HTTPChaos`): nas requisições que chegam aos pods, filtradas por `port`, `path` e `method`. Não vale para HTTPS.
+    - As cores seguem o efeito: atrasos usam a cor da latência e erros a da perda; o rótulo do bloco diz qual é a falha e, se for numa dependência, onde (`@ pix-postgres`, ou `→ pix-postgres` só no caminho).
   - O modo Docker não mudou: `docker compose up` continua igual.
 
 Backlog: curva de carga desenhável, falhas combinadas, banda/DNS/disco, falhas na entrada (ingress).
@@ -142,6 +148,6 @@ docs/               especificação
 3. Caos: injetor, as cinco falhas, linha do tempo arrastável, reversão garantida (feito)
 4. IA: SLOs e veredito, relatório via Claude sob demanda, comparação com referência, chat (feito); relatório imprimível e leitura do código da aplicação (feito)
 
-MVP2 (Kubernetes): A, KIND + Helm + alvos Deployment + as 5 falhas pelo Chaos Mesh (feito); B, falha numa dependência (ex.: Postgres) e falhas de IO, DNS e HTTP; C, logs dos pods e eventos do Kubernetes na IA; D, stack Grafana opcional (Prometheus/Mimir, Loki, Tempo, Pyroscope).
+MVP2 (Kubernetes): A, KIND + Helm + alvos Deployment + as 5 falhas pelo Chaos Mesh (feito); B, falha numa dependência (ex.: Postgres) e falhas de IO, DNS e HTTP (feito); C, logs dos pods e eventos do Kubernetes na IA; D, stack Grafana opcional (Prometheus/Mimir, Loki, Tempo, Pyroscope).
 
 Depois: nuvem (AKS/EKS), VMs via SSH, outros provedores de IA, CLI para CI, SaaS.

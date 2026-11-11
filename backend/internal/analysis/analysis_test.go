@@ -137,3 +137,19 @@ func TestAnalyzeWithCode(t *testing.T) {
 		t.Fatalf("linha fora do arquivo: %+v", fx[3])
 	}
 }
+
+func TestActiveFaultLabelsDependency(t *testing.T) {
+	at := func(v float64) *float64 { return &v }
+	dep := &scenario.Dependency{Namespace: "pix", Deployment: "pix-postgres"}
+	faults := []scenario.Fault{{ID: "a", Type: scenario.FaultLatency, Dependency: dep}, {ID: "b", Type: scenario.FaultPacketLoss, Dependency: dep, LinkOnly: true}, {ID: "c", Type: scenario.FaultDNSError}}
+	evs := []store.FaultEvent{
+		{FaultID: "a", Type: scenario.FaultLatency, AppliedAt: at(0), RevertedAt: at(5)},
+		{FaultID: "b", Type: scenario.FaultPacketLoss, AppliedAt: at(10), RevertedAt: at(15)},
+		{FaultID: "c", Type: scenario.FaultDNSError, AppliedAt: at(20), RevertedAt: at(25)},
+	}
+	for ts, want := range map[int64]string{2: "latency@pix/pix-postgres", 12: "packet_loss>pix/pix-postgres", 22: "dns_error", 30: ""} {
+		if got := activeFault(evs, faults, ts, 60); got != want {
+			t.Errorf("t=%d: %q, quer %q", ts, got, want)
+		}
+	}
+}

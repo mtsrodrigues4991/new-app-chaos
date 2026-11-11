@@ -12,7 +12,7 @@ var tgt = Target{Namespace: "shop", MatchLabels: map[string]string{"app": "api"}
 
 func build(t *testing.T, f scenario.Fault) (Kind, map[string]any) {
 	t.Helper()
-	k, obj, err := Build(f, tgt, "n1", "run1")
+	k, obj, err := Build(f, tgt, nil, "n1", "run1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +68,10 @@ func TestBuildKill(t *testing.T) {
 }
 
 func TestBuildInvalid(t *testing.T) {
-	if _, _, err := Build(scenario.Fault{Type: scenario.FaultLatency, Params: map[string]string{"pods": "metade"}}, tgt, "n", "r"); err == nil {
+	if _, _, err := Build(scenario.Fault{Type: scenario.FaultLatency, Params: map[string]string{"pods": "metade"}}, tgt, nil, "n", "r"); err == nil {
 		t.Fatal("esperava erro de pods inválido")
 	}
-	if _, _, err := Build(scenario.Fault{Type: "xyz"}, tgt, "n", "r"); err == nil {
+	if _, _, err := Build(scenario.Fault{Type: "xyz"}, tgt, nil, "n", "r"); err == nil {
 		t.Fatal("esperava erro de tipo desconhecido")
 	}
 }
@@ -110,5 +110,52 @@ func TestInjected(t *testing.T) {
 	ok, msg := parse(`{"conditions":[{"type":"AllInjected","status":"False"}],"experiment":{"containerRecords":[{"phase":"Injected"},{"phase":"Not Injected","events":[{"type":"Failed","message":"tc: não achou a interface"}]}]}}`).Injected()
 	if ok || msg != "tc: não achou a interface" {
 		t.Fatalf("ok=%v msg=%q", ok, msg)
+	}
+}
+
+func TestBuildLinkOnly(t *testing.T) {
+	db := Target{Namespace: "pix", MatchLabels: map[string]string{"app": "pix-postgres"}}
+	k, obj, err := Build(scenario.Fault{Type: scenario.FaultLatency, DurationSeconds: 10, Params: map[string]string{"latency": "500"}}, tgt, &db, "n", "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := obj["spec"].(map[string]any)
+	tg := spec["target"].(map[string]any)
+	if k != NetworkChaos || spec["direction"] != "to" || tg["mode"] != "all" ||
+		tg["selector"].(map[string]any)["labelSelectors"].(map[string]string)["app"] != "pix-postgres" ||
+		spec["selector"].(map[string]any)["labelSelectors"].(map[string]string)["app"] != "api" {
+		t.Fatalf("spec=%v", spec)
+	}
+	if _, _, err := Build(scenario.Fault{Type: scenario.FaultCPUStress, DurationSeconds: 10}, tgt, &db, "n", "r"); err == nil {
+		t.Fatal("CPU não pode ser só no caminho")
+	}
+}
+
+func TestBuildIODNSHTTP(t *testing.T) {
+	k, spec := build(t, scenario.Fault{Type: scenario.FaultIOLatency, DurationSeconds: 10, Params: map[string]string{"volume-path": "/var/lib/postgresql/data", "delay": "50"}})
+	if k != IOChaos || spec["action"] != "latency" || spec["delay"] != "50ms" || spec["percent"] != 100 || spec["volumePath"] != "/var/lib/postgresql/data" || spec["duration"] != "40s" {
+		t.Fatalf("io_latency: %v", spec)
+	}
+	k, spec = build(t, scenario.Fault{Type: scenario.FaultIOFault, DurationSeconds: 10, Params: map[string]string{"volume-path": "/data", "path": "/data/**/*"}})
+	if k != IOChaos || spec["action"] != "fault" || spec["errno"] != 5 || spec["percent"] != 50 || spec["path"] != "/data/**/*" {
+		t.Fatalf("io_fault: %v", spec)
+	}
+	if _, _, err := Build(scenario.Fault{Type: scenario.FaultIOFault, DurationSeconds: 10}, tgt, nil, "n", "r"); err == nil {
+		t.Fatal("IO sem volume-path deveria falhar")
+	}
+	k, spec = build(t, scenario.Fault{Type: scenario.FaultDNSError, DurationSeconds: 10, Params: map[string]string{"patterns": "pix-postgres.*, , google.com"}})
+	if p := spec["patterns"].([]string); k != DNSChaos || spec["action"] != "error" || len(p) != 2 || p[0] != "pix-postgres.*" {
+		t.Fatalf("dns: %v", spec)
+	}
+	if _, spec = build(t, scenario.Fault{Type: scenario.FaultDNSError, DurationSeconds: 10}); spec["patterns"] != nil {
+		t.Fatalf("dns sem padrões deveria valer para todos: %v", spec)
+	}
+	k, spec = build(t, scenario.Fault{Type: scenario.FaultHTTPDelay, DurationSeconds: 10, Params: map[string]string{"path": "/api/pedido", "method": "post"}})
+	if k != HTTPChaos || spec["target"] != "Request" || spec["port"] != 8080 || spec["delay"] != "500ms" || spec["method"] != "POST" || spec["path"] != "/api/pedido" {
+		t.Fatalf("http_delay: %v", spec)
+	}
+	_, spec = build(t, scenario.Fault{Type: scenario.FaultHTTPAbort, DurationSeconds: 10, Params: map[string]string{"port": "9090"}})
+	if spec["abort"] != true || spec["port"] != 9090 || spec["path"] != "*" || spec["method"] != nil {
+		t.Fatalf("http_abort: %v", spec)
 	}
 }

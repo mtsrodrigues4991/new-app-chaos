@@ -12,6 +12,9 @@ probe:
   path: ""
   initialDelaySeconds: 5
   periodSeconds: 5
+# Volume de dados (emptyDir) montado neste caminho; vazio = sem volume. As falhas de IO do
+# Chaos Mesh (IOChaos) só atuam em volumes, então o banco precisa de um.
+dataPath: ""
 resources:
   requests: { cpu: 100m, memory: 64Mi }
   limits: { cpu: 500m, memory: 256Mi }

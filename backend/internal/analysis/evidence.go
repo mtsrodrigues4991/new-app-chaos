@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/verdict"
 )
@@ -139,7 +140,9 @@ func trimFloat(v float64) string {
 }
 
 // activeFault devolve o tipo da falha ativa no segundo t ("" se nenhuma).
-func activeFault(events []store.FaultEvent, t int64, end float64) string {
+// Quando a falha foi aplicada numa dependência, o rótulo leva o nome dela (ex.: latency@pix/pix-postgres,
+// ou latency>pix/pix-postgres quando só o caminho até ela foi atingido).
+func activeFault(events []store.FaultEvent, faults []scenario.Fault, t int64, end float64) string {
 	for _, ev := range events {
 		if ev.AppliedAt == nil {
 			continue
@@ -149,7 +152,17 @@ func activeFault(events []store.FaultEvent, t int64, end float64) string {
 			stop = *ev.RevertedAt
 		}
 		if float64(t)+0.5 >= *ev.AppliedAt && float64(t)+0.5 < stop {
-			return string(ev.Type)
+			label := string(ev.Type)
+			for _, f := range faults {
+				if f.ID == ev.FaultID && f.Dependency != nil {
+					sep := "@"
+					if f.LinkOnly {
+						sep = ">"
+					}
+					label += sep + f.Dependency.Name()
+				}
+			}
+			return label
 		}
 	}
 	return ""
@@ -224,7 +237,7 @@ func Series(d RunData, maxRows int) string {
 				pc := *w.Pods
 				pods = &pc
 			}
-			if f := activeFault(d.Events, w.T, end); f != "" {
+			if f := activeFault(d.Events, d.Run.Scenario.Faults, w.T, end); f != "" {
 				faults[f] = true
 			}
 		}

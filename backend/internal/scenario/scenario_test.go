@@ -131,3 +131,52 @@ func TestValidateKubernetesTarget(t *testing.T) {
 		t.Fatal("pods inválido deveria falhar")
 	}
 }
+
+func TestValidateDependencyAndKubernetesOnly(t *testing.T) {
+	k8s := Scenario{
+		Name:      "dep",
+		Target:    Target{Platform: PlatformKubernetes, Namespace: "pix", Deployment: "pix-api", BaseURL: "http://pix-api.pix:8080"},
+		Mode:      ModeChaos,
+		ProbePath: "/health",
+		Profile:   Profile{DurationSeconds: 60},
+	}
+	dep := &Dependency{Namespace: "pix", Deployment: "pix-postgres"}
+	ok := []Fault{
+		{ID: "a", Type: FaultLatency, StartSeconds: 0, DurationSeconds: 5, Dependency: dep, LinkOnly: true},
+		{ID: "b", Type: FaultKillRestart, StartSeconds: 5, DurationSeconds: 5, Dependency: dep},
+		{ID: "c", Type: FaultIOLatency, StartSeconds: 10, DurationSeconds: 5, Dependency: dep, Params: map[string]string{ParamVolumePath: "/var/lib/postgresql/data"}},
+		{ID: "d", Type: FaultDNSError, StartSeconds: 15, DurationSeconds: 5, Params: map[string]string{ParamPatterns: "pix-postgres.*"}},
+		{ID: "e", Type: FaultHTTPAbort, StartSeconds: 20, DurationSeconds: 5, Params: map[string]string{ParamPath: "/pix"}},
+		{ID: "f", Type: FaultHTTPDelay, StartSeconds: 25, DurationSeconds: 5},
+	}
+	k8s.Faults = ok
+	if err := k8s.Validate(); err != nil {
+		t.Fatalf("esperava válido: %v", err)
+	}
+	if ok[0].Where() != "caminho até pix/pix-postgres" || ok[1].Where() != "dependência pix/pix-postgres" || ok[3].Where() != "alvo" {
+		t.Fatal("Where errado")
+	}
+	bad := map[string]Fault{
+		"link sem dependência": {ID: "x", Type: FaultLatency, DurationSeconds: 5, LinkOnly: true},
+		"link em CPU":          {ID: "x", Type: FaultCPUStress, DurationSeconds: 5, Dependency: dep, LinkOnly: true},
+		"dependência = alvo":   {ID: "x", Type: FaultKillRestart, DurationSeconds: 5, Dependency: &Dependency{Namespace: "pix", Deployment: "pix-api"}},
+		"IO sem volume":        {ID: "x", Type: FaultIOFault, DurationSeconds: 5},
+		"HTTP path ruim":       {ID: "x", Type: FaultHTTPAbort, DurationSeconds: 5, Params: map[string]string{ParamPath: "pix"}},
+		"HTTP porta ruim":      {ID: "x", Type: FaultHTTPDelay, DurationSeconds: 5, Params: map[string]string{ParamPort: "0"}},
+	}
+	for name, f := range bad {
+		s := k8s
+		s.Faults = []Fault{f}
+		if s.Validate() == nil {
+			t.Errorf("%s: esperava erro", name)
+		}
+	}
+	docker := k8s
+	docker.Target = Target{Container: "pix-api", BaseURL: "http://pix-api:8080"}
+	for _, f := range []Fault{{ID: "x", Type: FaultDNSError, DurationSeconds: 5}, {ID: "y", Type: FaultKillRestart, DurationSeconds: 5, Dependency: dep}} {
+		docker.Faults = []Fault{f}
+		if docker.Validate() == nil {
+			t.Errorf("%s no Docker deveria falhar", f.Type)
+		}
+	}
+}

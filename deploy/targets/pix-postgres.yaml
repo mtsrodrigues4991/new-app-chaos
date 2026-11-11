@@ -7,6 +7,8 @@ env:
   - { name: POSTGRES_USER, value: pix }
   - { name: POSTGRES_PASSWORD, value: pix }
 probe: { path: "" }
+# Volume para as falhas de IO (no cenário: volume /var/lib/postgresql/data).
+dataPath: /var/lib/postgresql/data
 resources:
   requests: { cpu: 100m, memory: 128Mi }
   limits: { cpu: "1", memory: 512Mi }

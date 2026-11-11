@@ -42,6 +42,16 @@ spec:
             initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
             periodSeconds: {{ .Values.probe.periodSeconds }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.dataPath }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ . }}
+          {{- end }}
+      {{- if .Values.dataPath }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

@@ -83,6 +83,21 @@ func (p *k8sPlatform) Recover(ctx context.Context, _ []store.Run) {
 	}
 }
 
+// dependency acha os pods de um Deployment usado pelo alvo (ex.: o banco).
+func (p *k8sPlatform) dependency(ctx context.Context, d scenario.Dependency) (chaosmesh.Target, error) {
+	dep, err := p.kube.GetDeployment(ctx, d.Namespace, d.Deployment)
+	if errors.Is(err, kube.ErrNotFound) {
+		return chaosmesh.Target{}, fmt.Errorf("Deployment da dependência %s não existe", d.Name())
+	}
+	if err != nil {
+		return chaosmesh.Target{}, err
+	}
+	if len(dep.Spec.Selector.MatchLabels) == 0 {
+		return chaosmesh.Target{}, fmt.Errorf("Deployment da dependência %s não tem selector.matchLabels", d.Name())
+	}
+	return chaosmesh.Target{Namespace: d.Namespace, MatchLabels: dep.Spec.Selector.MatchLabels}, nil
+}
+
 type k8sTarget struct {
 	p        *k8sPlatform
 	ns, name string
@@ -150,18 +165,32 @@ func podReady(p kube.Pod) bool {
 // ApplyFault cria o recurso do Chaos Mesh e espera ele confirmar a injeção.
 func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fault) (chaos.Revert, error) {
 	name := chaosmesh.Name("nac", runID, string(f.Type), fmt.Sprint(f.StartSeconds))
-	kind, obj, err := chaosmesh.Build(f, chaosmesh.Target{Namespace: t.ns, MatchLabels: t.labels}, name, runID)
+	where := chaosmesh.Target{Namespace: t.ns, MatchLabels: t.labels}
+	var link *chaosmesh.Target
+	if d := f.Dependency; d != nil {
+		dep, err := t.p.dependency(ctx, *d)
+		if err != nil {
+			return nil, err
+		}
+		if f.LinkOnly {
+			link = &dep // a falha fica no alvo, só no tráfego até a dependência
+		} else {
+			where = dep
+		}
+	}
+	kind, obj, err := chaosmesh.Build(f, where, link, name, runID)
 	if err != nil {
 		return nil, err
 	}
+	ns := where.Namespace // o recurso fica no namespace dos pods atingidos
 	c := t.p.kube
-	if err := c.Create(ctx, chaosmesh.Path(kind, t.ns, ""), obj); err != nil {
+	if err := c.Create(ctx, chaosmesh.Path(kind, ns, ""), obj); err != nil {
 		if errors.Is(err, kube.ErrNotFound) {
 			return nil, errors.New("o Chaos Mesh não está instalado no cluster (os recursos chaos-mesh.org não existem)")
 		}
 		return nil, fmt.Errorf("criando %s: %w", kind.Kind, err)
 	}
-	path := chaosmesh.Path(kind, t.ns, name)
+	path := chaosmesh.Path(kind, ns, name)
 	revert := func(ctx context.Context) error {
 		if err := c.Delete(ctx, path, ""); err != nil {
 			return fmt.Errorf("apagando %s: %w", kind.Kind, err)
@@ -174,7 +203,7 @@ func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fau
 			}
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("o Chaos Mesh não desfez %s a tempo (confira com kubectl get %s -n %s)", name, kind.Plural, t.ns)
+				return fmt.Errorf("o Chaos Mesh não desfez %s a tempo (confira com kubectl get %s -n %s)", name, kind.Plural, ns)
 			case <-time.After(t.p.Poll / 2):
 			}
 		}

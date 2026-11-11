@@ -247,3 +247,48 @@ func TestK8sRecover(t *testing.T) {
 		t.Fatal("o Recover deveria apagar os Jobs do k6 e seus pods")
 	}
 }
+
+func TestK8sFaultOnDependency(t *testing.T) {
+	f, p := cluster(t)
+	f.OnCreate = injectAll
+	f.Deployment("pix", "pix-postgres", map[string]string{"app": "pix-postgres"}, 1)
+	ctx := context.Background()
+	tg, _ := p.Resolve(ctx, k8sScenario("shop", "api"))
+	dep := &scenario.Dependency{Namespace: "pix", Deployment: "pix-postgres"}
+	nc := kubefake.Ref{GV: chaosmesh.Group, Plural: "networkchaos"}
+	labelsOf := func(o obj, path ...string) string {
+		var cur any = o
+		for _, k := range path {
+			cur = cur.(map[string]any)[k]
+		}
+		return fmt.Sprint(cur.(map[string]any)["labelSelectors"].(map[string]any)["app"])
+	}
+
+	// Na dependência: o recurso fica no namespace dela e atinge os pods dela.
+	revert, err := tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultLatency, StartSeconds: 1, DurationSeconds: 5, Dependency: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.List(nc)
+	if len(got) != 1 || got[0]["metadata"].(map[string]any)["namespace"] != "pix" || labelsOf(got[0], "spec", "selector") != "pix-postgres" {
+		t.Fatalf("falha na dependência: %v", got)
+	}
+	_ = revert(ctx)
+
+	// Só o caminho: o recurso fica no alvo, com a dependência como target.
+	revert, err = tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultPacketLoss, StartSeconds: 9, DurationSeconds: 5, Dependency: dep, LinkOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = f.List(nc)
+	if len(got) != 1 || got[0]["metadata"].(map[string]any)["namespace"] != "shop" ||
+		labelsOf(got[0], "spec", "selector") != "api" || labelsOf(got[0], "spec", "target", "selector") != "pix-postgres" {
+		t.Fatalf("falha no caminho: %v", got)
+	}
+	_ = revert(ctx)
+
+	_, err = tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultKillRestart, DurationSeconds: 5, Dependency: &scenario.Dependency{Namespace: "pix", Deployment: "nope"}})
+	if err == nil || !strings.Contains(err.Error(), "dependência pix/nope não existe") {
+		t.Fatalf("erro=%v", err)
+	}
+}

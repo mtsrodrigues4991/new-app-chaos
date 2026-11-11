@@ -37,10 +37,13 @@ var (
 	NetworkChaos = Kind{"NetworkChaos", "networkchaos"}
 	StressChaos  = Kind{"StressChaos", "stresschaos"}
 	PodChaos     = Kind{"PodChaos", "podchaos"}
+	IOChaos      = Kind{"IOChaos", "iochaos"}
+	DNSChaos     = Kind{"DNSChaos", "dnschaos"}
+	HTTPChaos    = Kind{"HTTPChaos", "httpchaos"}
 )
 
 // Kinds são todos os tipos que o app cria (para a limpeza).
-var Kinds = []Kind{NetworkChaos, StressChaos, PodChaos}
+var Kinds = []Kind{NetworkChaos, StressChaos, PodChaos, IOChaos, DNSChaos, HTTPChaos}
 
 // Target é o Deployment atingido.
 type Target struct {
@@ -60,17 +63,26 @@ func Name(parts ...string) string {
 	return n
 }
 
-// Build monta o recurso do Chaos Mesh para a falha f no alvo t.
-func Build(f scenario.Fault, t Target, name, runID string) (Kind, map[string]any, error) {
+func (t Target) selector() map[string]any {
+	return map[string]any{"namespaces": []string{t.Namespace}, "labelSelectors": t.MatchLabels}
+}
+
+// Build monta o recurso do Chaos Mesh para a falha f nos pods de t. Com link (só latência e
+// perda), a falha vale apenas para o tráfego de t até os pods de link (uma dependência).
+func Build(f scenario.Fault, t Target, link *Target, name, runID string) (Kind, map[string]any, error) {
 	if err := f.ValidateParams(); err != nil {
 		return Kind{}, nil, err
 	}
+	if link != nil && !f.Type.IsNetwork() {
+		return Kind{}, nil, fmt.Errorf("só latência e perda de pacotes podem ficar restritas ao caminho até uma dependência")
+	}
 	spec := map[string]any{
-		"mode": f.PodsMode(),
-		"selector": map[string]any{
-			"namespaces":     []string{t.Namespace},
-			"labelSelectors": t.MatchLabels,
-		},
+		"mode":     f.PodsMode(),
+		"selector": t.selector(),
+	}
+	if link != nil {
+		// Do alvo para a dependência: os pacotes que saem do alvo rumo a ela (as consultas).
+		spec["target"] = map[string]any{"mode": "all", "selector": link.selector()}
 	}
 	duration := fmt.Sprintf("%ds", f.DurationSeconds+SafetyMarginSeconds)
 	var kind Kind
@@ -111,6 +123,42 @@ func Build(f scenario.Fault, t Target, name, runID string) (Kind, map[string]any
 		kind = PodChaos
 		spec["action"] = "pod-kill"
 		spec["gracePeriod"] = 0
+	case scenario.FaultIOLatency, scenario.FaultIOFault:
+		kind = IOChaos
+		spec["volumePath"] = f.Param(scenario.ParamVolumePath)
+		if p := f.Param(scenario.ParamPath); p != "" {
+			spec["path"] = p
+		}
+		spec["percent"] = f.IntParam(scenario.ParamPercent)
+		if f.Type == scenario.FaultIOLatency {
+			spec["action"] = "latency"
+			spec["delay"] = f.Param(scenario.ParamDelay) + "ms"
+		} else {
+			spec["action"] = "fault"
+			spec["errno"] = f.IntParam(scenario.ParamErrno)
+		}
+		spec["duration"] = duration
+	case scenario.FaultDNSError:
+		kind = DNSChaos
+		spec["action"] = "error"
+		if p := f.Patterns(); len(p) > 0 {
+			spec["patterns"] = p
+		}
+		spec["duration"] = duration
+	case scenario.FaultHTTPDelay, scenario.FaultHTTPAbort:
+		kind = HTTPChaos
+		spec["target"] = "Request"
+		spec["port"] = f.IntParam(scenario.ParamPort)
+		spec["path"] = f.Param(scenario.ParamPath)
+		if m := strings.ToUpper(f.Param(scenario.ParamMethod)); m != "" {
+			spec["method"] = m
+		}
+		if f.Type == scenario.FaultHTTPDelay {
+			spec["delay"] = f.Param(scenario.ParamDelay) + "ms"
+		} else {
+			spec["abort"] = true
+		}
+		spec["duration"] = duration
 	default:
 		return Kind{}, nil, fmt.Errorf("tipo de falha sem equivalente no Chaos Mesh: %q", f.Type)
 	}
