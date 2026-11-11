@@ -73,7 +73,7 @@ As falhas de rede usam o módulo `netem` do kernel. A maioria das distribuiçõe
 
 ### Kubernetes local (KIND)
 
-Requisitos: Docker, `make`, `git` e as ferramentas kind, kubectl e helm (`make kind-tools` instala as três em `~/.local/bin`). Reserve uns 6 GB de RAM para o cluster com todos os alvos; no WSL, ajuste `memory=` no `.wslconfig` se precisar.
+Requisitos: Docker, `make` (`sudo apt install make` no Debian/WSL), `git` e as ferramentas kind, kubectl e helm (`make kind-tools` instala as três em `~/.local/bin`). Reserve uns 6 GB de RAM para o cluster com todos os alvos; no WSL, ajuste `memory=` no `.wslconfig` se precisar.
 
 ```bash
 make kind-up      # cria o cluster e instala metrics-server, Chaos Mesh, o new-app-chaos e os alvos
