@@ -101,6 +101,24 @@ func TestK8sApplyFaultNotConfirmed(t *testing.T) {
 	}
 }
 
+// O caso real do WSL2: o HTTPChaos não injeta (sem ebtables) e o Chaos Mesh não libera o
+// finalizer. O recurso tem que sair do cluster mesmo assim.
+func TestK8sApplyFaultStuckFinalizer(t *testing.T) {
+	f, p := cluster(t)
+	f.OnCreate = func(s *kubefake.Server, r kubefake.Ref, o obj) {
+		o["metadata"].(obj)["finalizers"] = []any{"chaos-mesh/records"}
+		o["status"] = obj{"experiment": obj{"containerRecords": []obj{{"phase": "Not Injected", "events": []obj{{"type": "Failed", "message": "modprobe: FATAL: Module ebtables not found"}}}}}}
+	}
+	tg, _ := p.Resolve(context.Background(), k8sScenario("shop", "api"))
+	_, err := tg.ApplyFault(context.Background(), "r1", scenario.Fault{Type: scenario.FaultHTTPAbort, DurationSeconds: 5})
+	if err == nil || !strings.Contains(err.Error(), "ebtables") || !strings.Contains(err.Error(), "WSL2") || !strings.Contains(err.Error(), "à força") {
+		t.Fatalf("erro=%v", err)
+	}
+	if n := len(f.List(kubefake.Ref{GV: chaosmesh.Group, Plural: "httpchaos"})); n != 0 {
+		t.Fatalf("o HTTPChaos ficou preso no cluster (%d restantes)", n)
+	}
+}
+
 func TestK8sApplyFaultWithoutChaosMesh(t *testing.T) {
 	f, p := cluster(t)
 	delete(f.Groups, chaosmesh.Group)

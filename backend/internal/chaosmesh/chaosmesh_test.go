@@ -121,7 +121,7 @@ func TestBuildLinkOnly(t *testing.T) {
 	}
 	spec := obj["spec"].(map[string]any)
 	tg := spec["target"].(map[string]any)
-	if k != NetworkChaos || spec["direction"] != "to" || tg["mode"] != "all" ||
+	if k != NetworkChaos || spec["direction"] != "both" || tg["mode"] != "all" ||
 		tg["selector"].(map[string]any)["labelSelectors"].(map[string]string)["app"] != "pix-postgres" ||
 		spec["selector"].(map[string]any)["labelSelectors"].(map[string]string)["app"] != "api" {
 		t.Fatalf("spec=%v", spec)

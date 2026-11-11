@@ -12,9 +12,15 @@ probe:
   path: ""
   initialDelaySeconds: 5
   periodSeconds: 5
-# Volume de dados (emptyDir) montado neste caminho; vazio = sem volume. As falhas de IO do
-# Chaos Mesh (IOChaos) só atuam em volumes, então o banco precisa de um.
+# Volume de dados montado neste caminho; vazio = sem volume. As falhas de IO do Chaos Mesh
+# (IOChaos) só atuam em volumes, então o banco precisa de um.
 dataPath: ""
+# Com persistence.enabled o volume é um PVC (sobrevive a um kill do pod); sem, é um emptyDir
+# (some junto com o pod). storageClass vazio = a padrão do cluster (no KIND, "standard").
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: ""
 resources:
   requests: { cpu: 100m, memory: 64Mi }
   limits: { cpu: 500m, memory: 256Mi }

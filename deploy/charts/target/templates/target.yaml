@@ -8,6 +8,13 @@ metadata:
     app.kubernetes.io/part-of: new-app-chaos-targets
 spec:
   replicas: {{ .Values.replicas }}
+  {{- if and .Values.dataPath .Values.persistence.enabled }}
+  # Um pod por vez no volume: o novo só sobe depois que o antigo sai (como um Recreate, sem
+  # trocar o tipo da estratégia em quem já está instalado).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  {{- end }}
   selector:
     matchLabels:
       app: {{ $name }}
@@ -50,8 +57,34 @@ spec:
       {{- if .Values.dataPath }}
       volumes:
         - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+          {{- else }}
           emptyDir: {}
+          {{- end }}
       {{- end }}
+{{- if and .Values.dataPath .Values.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  labels:
+    app: {{ $name }}
+    app.kubernetes.io/part-of: new-app-chaos-targets
+  annotations:
+    # Um helm uninstall não apaga os dados.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

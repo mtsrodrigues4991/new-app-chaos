@@ -1,4 +1,4 @@
-# Banco do itau-case-pix. Dados em disco do pod (somem ao recriar): é ambiente de teste.
+# Banco do itau-case-pix. Os dados ficam num PVC: sobrevivem a um kill do pod (falha kill_restart).
 image: postgres:16-alpine
 replicas: 1
 port: 5432
@@ -9,6 +9,9 @@ env:
 probe: { path: "" }
 # Volume para as falhas de IO (no cenário: volume /var/lib/postgresql/data).
 dataPath: /var/lib/postgresql/data
+persistence:
+  enabled: true
+  size: 1Gi
 resources:
   requests: { cpu: 100m, memory: 128Mi }
   limits: { cpu: "1", memory: 512Mi }

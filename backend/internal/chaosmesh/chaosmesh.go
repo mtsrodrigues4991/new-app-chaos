@@ -80,9 +80,13 @@ func Build(f scenario.Fault, t Target, link *Target, name, runID string) (Kind, 
 		"mode":     f.PodsMode(),
 		"selector": t.selector(),
 	}
+	direction := "to"
 	if link != nil {
-		// Do alvo para a dependência: os pacotes que saem do alvo rumo a ela (as consultas).
+		// Só o tráfego entre o alvo e a dependência. Precisa valer nos dois sentidos: o alvo
+		// costuma falar com ela pelo IP do Service, e com "to" a regra (que casa o IP dos pods)
+		// não pega as consultas; com "both" ela pega as respostas que voltam dos pods.
 		spec["target"] = map[string]any{"mode": "all", "selector": link.selector()}
+		direction = "both"
 	}
 	duration := fmt.Sprintf("%ds", f.DurationSeconds+SafetyMarginSeconds)
 	var kind Kind
@@ -90,7 +94,7 @@ func Build(f scenario.Fault, t Target, link *Target, name, runID string) (Kind, 
 	case scenario.FaultLatency:
 		kind = NetworkChaos
 		spec["action"] = "delay"
-		spec["direction"] = "to"
+		spec["direction"] = direction
 		spec["delay"] = map[string]any{
 			"latency":     f.Param(scenario.ParamLatency) + "ms",
 			"jitter":      f.Param(scenario.ParamJitter) + "ms",
@@ -100,7 +104,7 @@ func Build(f scenario.Fault, t Target, link *Target, name, runID string) (Kind, 
 	case scenario.FaultPacketLoss:
 		kind = NetworkChaos
 		spec["action"] = "loss"
-		spec["direction"] = "to"
+		spec["direction"] = direction
 		spec["loss"] = map[string]any{"loss": f.Param(scenario.ParamLoss), "correlation": "0"}
 		spec["duration"] = duration
 	case scenario.FaultCPUStress:

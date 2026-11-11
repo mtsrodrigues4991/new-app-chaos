@@ -70,7 +70,7 @@ export const faultMeta: Record<FaultType, FaultMeta> = {
     color: 'var(--fault-latency)',
     k8sOnly: true,
     help: '',
-    k8sHelp: 'Atrasa leituras e escritas num volume do container (IOChaos latency). Bom para simular disco lento num banco.',
+    k8sHelp: 'Atrasa leituras e escritas num volume do container (IOChaos latency). Bom para simular disco lento num banco. Só aparece com operações que vão ao disco: leituras que o banco já tem em cache não sentem; use carga com escritas.',
     params: [
       { key: 'volume-path', label: 'Volume', def: '', text: true, help: 'ponto de montagem, ex.: /var/lib/postgresql/data' },
       { key: 'delay', label: 'Atraso', unit: 'ms', def: '100', min: 1, max: 60000 },
@@ -83,7 +83,7 @@ export const faultMeta: Record<FaultType, FaultMeta> = {
     color: 'var(--fault-loss)',
     k8sOnly: true,
     help: '',
-    k8sHelp: 'Faz parte das operações num volume do container falhar com um erro do sistema (IOChaos fault; 5 = EIO, erro de entrada/saída).',
+    k8sHelp: 'Faz parte das operações num volume do container falhar com um erro do sistema (IOChaos fault; 5 = EIO, erro de entrada/saída). Como no atraso de disco, precisa de carga que escreva ou leia fora do cache.',
     params: [
       { key: 'volume-path', label: 'Volume', def: '', text: true, help: 'ponto de montagem, ex.: /var/lib/postgresql/data' },
       { key: 'errno', label: 'Erro (errno)', def: '5', min: 1, max: 255 },
@@ -96,7 +96,7 @@ export const faultMeta: Record<FaultType, FaultMeta> = {
     color: 'var(--fault-loss)',
     k8sOnly: true,
     help: '',
-    k8sHelp: 'A resolução de nomes dos pods falha (DNSChaos error). Com o alvo, ele deixa de achar as dependências pelo nome do Service.',
+    k8sHelp: 'A resolução de nomes dos pods falha (DNSChaos error). Com o alvo, ele deixa de achar as dependências pelo nome do Service. Só afeta conexões novas: um pool que já está aberto (ex.: Hikari com o banco) continua funcionando.',
     params: [{ key: 'patterns', label: 'Domínios', def: '', text: true, help: 'ex.: pix-postgres.* (vazio = todos)' }],
   },
   http_delay: {
@@ -105,7 +105,7 @@ export const faultMeta: Record<FaultType, FaultMeta> = {
     color: 'var(--fault-latency)',
     k8sOnly: true,
     help: '',
-    k8sHelp: 'Atrasa as requisições HTTP que chegam aos pods, só no caminho e método escolhidos (HTTPChaos delay). Não vale para HTTPS.',
+    k8sHelp: 'Atrasa as requisições HTTP que chegam aos pods, só no caminho e método escolhidos (HTTPChaos delay). Não vale para HTTPS. Exige o módulo ebtables no kernel dos nós: no KIND sobre o WSL2 ele não existe e a falha não é aplicada (fica marcada como falhou, e a execução segue).',
     params: [
       { key: 'delay', label: 'Atraso', unit: 'ms', def: '500', min: 1, max: 60000 },
       { key: 'port', label: 'Porta', def: '8080', min: 1, max: 65535 },
@@ -119,7 +119,7 @@ export const faultMeta: Record<FaultType, FaultMeta> = {
     color: 'var(--fault-loss)',
     k8sOnly: true,
     help: '',
-    k8sHelp: 'Corta a conexão das requisições HTTP que chegam aos pods, só no caminho e método escolhidos (HTTPChaos abort). Não vale para HTTPS.',
+    k8sHelp: 'Corta a conexão das requisições HTTP que chegam aos pods, só no caminho e método escolhidos (HTTPChaos abort). Não vale para HTTPS. Exige o módulo ebtables no kernel dos nós: no KIND sobre o WSL2 ele não existe e a falha não é aplicada (fica marcada como falhou, e a execução segue).',
     params: [
       { key: 'port', label: 'Porta', def: '8080', min: 1, max: 65535 },
       { key: 'path', label: 'Caminho', def: '*', text: true },

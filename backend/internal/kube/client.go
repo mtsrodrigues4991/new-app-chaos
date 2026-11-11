@@ -109,7 +109,11 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		ct := "application/json"
+		if method == http.MethodPatch {
+			ct = "application/merge-patch+json"
+		}
+		req.Header.Set("Content-Type", ct)
 	}
 	req.Header.Set("Accept", "application/json")
 	tok := c.token
@@ -376,6 +380,11 @@ func (c *Client) Delete(ctx context.Context, path, propagation string) error {
 		return nil
 	}
 	return err
+}
+
+// Patch aplica um merge patch (RFC 7386) no objeto em path.
+func (c *Client) Patch(ctx context.Context, path string, patch any) error {
+	return c.Do(ctx, http.MethodPatch, path, patch, nil)
 }
 
 // DeleteCollection apaga todos os objetos da coleção que casam com o seletor.
