@@ -4,6 +4,11 @@ backend:
   pullPolicy: IfNotPresent
   # Imagem do k6 usada nos Jobs de carga.
   k6Image: grafana/k6:0.54.0  # mesma versão do modo Docker (runner.DefaultK6Image)
+  # Onde os Jobs do k6 rodam (vazio = qualquer nó). Na AKS: o pool "load" (spot), ex.:
+  # k6NodeSelector: agentpool=load
+  # k6Tolerations: kubernetes.azure.com/scalesetpriority=spot:NoSchedule
+  k6NodeSelector: ""
+  k6Tolerations: ""
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: "1", memory: 512Mi }
@@ -15,7 +20,9 @@ backend:
 frontend:
   image: new-app-chaos-frontend:dev
   pullPolicy: IfNotPresent
-  # Porta do nó; o KIND mapeia para localhost:3000 (deploy/kind/cluster.yaml).
+  # NodePort no KIND (o KIND mapeia para localhost:3000, deploy/kind/cluster.yaml);
+  # ClusterIP na nuvem, onde a entrada é o Ingress.
+  serviceType: NodePort
   nodePort: 30080
   resources:
     requests: { cpu: 20m, memory: 32Mi }
@@ -40,3 +47,23 @@ secretName: new-app-chaos-secrets
 
 # Muda a cada make kind-up para os pods pegarem a imagem recém-carregada (mesma tag).
 buildId: ""
+
+# Entrada pública (nuvem): Ingress com HTTPS na frente do frontend.
+ingress:
+  enabled: false
+  className: traefik
+  host: ""
+  # Secret com o certificado (o cert-manager cria; o workflow guarda uma cópia ao desligar).
+  tlsSecret: new-app-chaos-tls
+  annotations: {}
+
+# Login (nuvem). A senha do admin e os convidados fixos (APP_USERS) vêm do secretName.
+auth:
+  enabled: false
+  adminUser: admin
+  secureCookie: true
+
+# Travas para convidados (nuvem): URL base só de serviços do cluster e teto diário da IA.
+guard:
+  allowedTargetHosts: ""   # ex.: demo,pix,dorigao
+  aiDailyLimit: 0          # 0 = sem limite

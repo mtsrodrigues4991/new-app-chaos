@@ -305,6 +305,24 @@ func (t *k8sTarget) StartK6(ctx context.Context, runID, image, script string) (K
 		k, v, _ := strings.Cut(kv, "=")
 		env = append(env, map[string]string{"name": k, "value": v})
 	}
+	podSpec := map[string]any{
+		"restartPolicy": "Never",
+		"containers": []map[string]any{{
+			"name":            "k6",
+			"image":           image,
+			"imagePullPolicy": "IfNotPresent", // o kind-up já carrega a imagem no nó
+			"command":         []string{"sh", "-c", k6Command},
+			"env":             env,
+			"ports":           []map[string]any{{"containerPort": dashboardPort, "name": "dashboard"}},
+		}},
+	}
+	// Na nuvem o k6 roda num grupo de nós próprio (a injetora), longe dos alvos.
+	if sel := k6NodeSelector(); len(sel) > 0 {
+		podSpec["nodeSelector"] = sel
+	}
+	if tol := k6Tolerations(); len(tol) > 0 {
+		podSpec["tolerations"] = tol
+	}
 	job := map[string]any{
 		"apiVersion": "batch/v1",
 		"kind":       "Job",
@@ -314,17 +332,7 @@ func (t *k8sTarget) StartK6(ctx context.Context, runID, image, script string) (K
 			"ttlSecondsAfterFinished": 600,
 			"template": map[string]any{
 				"metadata": map[string]any{"labels": labels},
-				"spec": map[string]any{
-					"restartPolicy": "Never",
-					"containers": []map[string]any{{
-						"name":            "k6",
-						"image":           image,
-						"imagePullPolicy": "IfNotPresent", // o kind-up já carrega a imagem no nó
-						"command":         []string{"sh", "-c", k6Command},
-						"env":             env,
-						"ports":           []map[string]any{{"containerPort": dashboardPort, "name": "dashboard"}},
-					}},
-				},
+				"spec":     podSpec,
 			},
 		},
 	}

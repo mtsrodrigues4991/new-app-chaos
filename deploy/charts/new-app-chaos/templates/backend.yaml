@@ -50,6 +50,34 @@ spec:
                   fieldPath: metadata.namespace
             - name: K6_IMAGE
               value: {{ .Values.backend.k6Image }}
+            {{- with .Values.backend.k6NodeSelector }}
+            - { name: K6_NODE_SELECTOR, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.backend.k6Tolerations }}
+            - { name: K6_TOLERATIONS, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.auth.enabled }}
+            - { name: AUTH_ENABLED, value: "true" }
+            - { name: ADMIN_USER, value: {{ .Values.auth.adminUser | quote }} }
+            - { name: COOKIE_SECURE, value: {{ .Values.auth.secureCookie | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: ADMIN_PASSWORD
+            - name: APP_USERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: APP_USERS
+                  optional: true
+            {{- end }}
+            {{- with .Values.guard.allowedTargetHosts }}
+            - { name: ALLOWED_TARGET_HOSTS, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.guard.aiDailyLimit }}
+            - { name: AI_DAILY_LIMIT, value: {{ .Values.guard.aiDailyLimit | quote }} }
+            {{- end }}
             {{- if .Values.observability.enabled }}
             - { name: OBS_PROMETHEUS_URL, value: {{ .Values.observability.prometheusUrl | quote }} }
             - { name: OBS_TEMPO_URL, value: {{ .Values.observability.tempoUrl | quote }} }

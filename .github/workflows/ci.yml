@@ -24,3 +24,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - run: helm lint deploy/charts/new-app-chaos && helm lint deploy/charts/target -f deploy/targets/demo-api.yaml
+      # Valores da nuvem (Ingress, login, travas, k6 no pool próprio) também precisam renderizar.
+      - run: |
+          helm template t deploy/charts/new-app-chaos --set ingress.enabled=true --set ingress.host=exemplo.eastus2.cloudapp.azure.com \
+            --set auth.enabled=true --set frontend.serviceType=ClusterIP --set backend.k6NodeSelector=agentpool=load \
+            --set backend.k6Tolerations=kubernetes.azure.com/scalesetpriority=spot:NoSchedule \
+            --set guard.allowedTargetHosts=demo,pix,dorigao --set guard.aiDailyLimit=50 > /tmp/cloud.yaml
+          grep -q 'kind: Ingress' /tmp/cloud.yaml && grep -q AUTH_ENABLED /tmp/cloud.yaml && grep -q K6_TOLERATIONS /tmp/cloud.yaml
+          helm template t deploy/charts/new-app-chaos | grep -q 'nodePort: 30080'
