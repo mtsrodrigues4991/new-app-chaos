@@ -45,7 +45,11 @@ export type Scenario = {
   probePath?: string;
   slo?: SLO;
   requestTimeoutSeconds?: number;
+  code?: CodeRepo;
 };
+
+// Repositório da aplicação no GitHub, lido pela IA.
+export type CodeRepo = { repo: string; branch: string; path?: string };
 
 export type SLO = { p95Ms: number; errorRatePct: number; availabilityPct: number };
 
@@ -137,15 +141,16 @@ export type ReportContent = {
   breakingPoint: { found: boolean; description: string };
   faultFindings: { faultId: string; finding: string }[];
   causes: string[];
-  fixes: { title: string; detail: string }[];
+  fixes: { title: string; detail: string; file?: string; line?: number; code?: string; url?: string }[];
   regression?: { verdict: 'melhorou' | 'igual' | 'piorou'; summary: string; items: string[] };
 };
 
 export type Report = {
   content: ReportContent;
   provider: string;
-  usage: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number };
+  usage: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; toolCalls?: number };
   referenceRunId?: string;
+  code?: { repo: string; branch: string; path?: string; commit: string; filesRead: string[] };
   score: number;
   createdAt: string;
 };
@@ -156,7 +161,7 @@ export type AIModel = { id: string; label: string; note?: string };
 
 export type AIProvider = { id: string; label: string; keyEnv: string; configured: boolean; defaultModel: string; models: AIModel[] };
 
-export type AISettings = { provider: string; model: string; providers?: AIProvider[] };
+export type AISettings = { provider: string; model: string; providers?: AIProvider[]; githubTokenConfigured?: boolean };
 
 export type RunDetail = Run & {
   windows: Window[];

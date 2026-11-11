@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
@@ -91,5 +92,28 @@ func TestAnalyzeWithReference(t *testing.T) {
 	}
 	if _, ok := f.got.Schema["properties"].(map[string]any)["regression"]; ok || rep.Content.Regression != nil {
 		t.Fatal("sem referência não deveria haver regressão")
+	}
+}
+
+func TestAnalyzeWithCode(t *testing.T) {
+	root := t.TempDir()
+	snap := coderepo.Snapshot{Repo: "dono/app", Branch: "main", Commit: "abc", Root: root}
+	b := coderepo.NewBrowser(snap)
+	f := &fake{resp: `{"summary":"s","scoreExplanation":"e","breakingPoint":{"found":false,"description":"d"},
+		"faultFindings":[],"causes":["c"],"fixes":[{"title":"Pool","detail":"d","file":"src/app.yml","line":4,"code":"maximum-pool-size: 20"},
+		{"title":"Réplicas","detail":"d","file":"","line":0,"code":""}]}`}
+	rep, err := Analyze(context.Background(), f, "m", Input{Current: runData("r", 20), Code: b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.got.Tools) != 3 || !strings.Contains(f.got.System, "dono/app") {
+		t.Fatalf("deveria oferecer as 3 ferramentas e citar o repositório: %d", len(f.got.Tools))
+	}
+	fix := f.got.Schema["properties"].(map[string]any)["fixes"].(map[string]any)["items"].(map[string]any)
+	if _, ok := fix["properties"].(map[string]any)["file"]; !ok {
+		t.Fatal("schema deveria pedir file/line/code com o código disponível")
+	}
+	if rep.Code == nil || rep.Code.Commit != "abc" || rep.Content.Fixes[0].URL != "https://github.com/dono/app/blob/abc/src/app.yml#L4" || rep.Content.Fixes[1].URL != "" {
+		t.Fatalf("relatório: %+v %+v", rep.Code, rep.Content.Fixes)
 	}
 }

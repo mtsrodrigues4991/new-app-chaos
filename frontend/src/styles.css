@@ -216,3 +216,14 @@ body.print-mode main { max-width: 720px; }
   a { color: inherit; text-decoration: none; }
   .tiles { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Código da aplicação no relatório e no chat */
+pre.code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 13px; line-height: 1.45; overflow-x: auto; white-space: pre; margin: 6px 0; }
+.msg pre.code { white-space: pre; }
+.fix-file { margin-top: 2px; }
+.code-read summary { cursor: pointer; }
+.code-read ul { margin: 4px 0 0; }
+@media print {
+  pre.code { white-space: pre-wrap; break-inside: avoid; }
+  .code-read ul { display: block; }
+}

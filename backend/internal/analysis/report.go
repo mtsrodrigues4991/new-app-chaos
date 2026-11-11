@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 )
 
 // Content é o relatório que a IA devolve (formato garantido pelo JSON Schema abaixo).
@@ -34,6 +35,17 @@ type FaultFinding struct {
 type Fix struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
+	// Com o código disponível: onde mudar e o trecho proposto ("" / 0 quando não se aplica).
+	File string `json:"file,omitempty"`
+	Line int    `json:"line,omitempty"`
+	Code string `json:"code,omitempty"`
+	URL  string `json:"url,omitempty"` // link para o arquivo no GitHub, no commit analisado
+}
+
+// CodeInfo diz qual versão do código a IA leu.
+type CodeInfo struct {
+	coderepo.Snapshot
+	FilesRead []string `json:"filesRead"`
 }
 
 type RegressionPart struct {
@@ -48,6 +60,7 @@ type Report struct {
 	Provider       string      `json:"provider"`
 	Usage          ai.Response `json:"usage"` // modelo que respondeu e tokens
 	ReferenceRunID string      `json:"referenceRunId,omitempty"`
+	Code           *CodeInfo   `json:"code,omitempty"`
 	Score          int         `json:"score"` // nota no momento da análise
 	CreatedAt      time.Time   `json:"createdAt"`
 }
@@ -63,7 +76,18 @@ func arr(items map[string]any, desc string) map[string]any {
 }
 
 // Schema do relatório. A seção de regressão só existe quando há execução de referência.
-func reportSchema(withRegression bool) map[string]any {
+func reportSchema(withRegression, withCode bool) map[string]any {
+	fix := map[string]any{
+		"title":  str("Correção em poucas palavras"),
+		"detail": str("O que mudar e por quê, de forma concreta (configuração, código, infraestrutura)"),
+	}
+	fixRequired := []string{"title", "detail"}
+	if withCode {
+		fix["file"] = str("Arquivo a mudar, relativo à raiz do repositório (como nas ferramentas); vazio se a correção não é no código")
+		fix["line"] = map[string]any{"type": "integer", "description": "Linha do ponto a mudar; 0 se não se aplica"}
+		fix["code"] = str("Trecho de código ou configuração proposto (só o trecho alterado); vazio se não se aplica")
+		fixRequired = append(fixRequired, "file", "line", "code")
+	}
 	props := map[string]any{
 		"summary":          str("Resumo em 3 a 6 frases: o que foi testado, como a aplicação se comportou e o veredito."),
 		"scoreExplanation": str("Por que a nota calculada ficou nesse valor, citando as falhas e os tempos de recuperação que mais pesaram."),
@@ -76,10 +100,7 @@ func reportSchema(withRegression bool) map[string]any {
 			"finding": str("Efeito observado durante e depois da falha, com números"),
 		}, "faultId", "finding"), "Uma entrada por falha aplicada; vazio se não houve falhas."),
 		"causes": arr(str(""), "Causas prováveis, da mais para a menos provável, cada uma apoiada em evidência da série."),
-		"fixes": arr(obj(map[string]any{
-			"title":  str("Correção em poucas palavras"),
-			"detail": str("O que mudar e por quê, de forma concreta (configuração, código, infraestrutura)"),
-		}, "title", "detail"), "Sugestões de correção, da mais para a menos importante."),
+		"fixes":  arr(obj(fix, fixRequired...), "Sugestões de correção, da mais para a menos importante."),
 	}
 	required := []string{"summary", "scoreExplanation", "breakingPoint", "faultFindings", "causes", "fixes"}
 	if withRegression {
@@ -111,6 +132,27 @@ const reportTask = `Escreva o relatório da execução analisada no formato pedi
 
 const regressionTask = `Há uma execução de referência do mesmo cenário (marcada pelo usuário). Preencha também a seção "regression" comparando a execução analisada com ela. Se o cenário mudou entre as duas (carga, falhas ou SLOs), diga o que mudou e trate a comparação com cautela.`
 
+// codeInstructions explica à IA como usar o código da aplicação.
+func codeInstructions(b *coderepo.Browser) string {
+	s := b.Snap
+	where := s.Repo
+	if s.Path != "" {
+		where += " (subpasta " + s.Path + ")"
+	}
+	return fmt.Sprintf(`
+
+Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação.
+- Investigue no código o que explica o comportamento observado antes de concluir: o tratamento dos endpoints testados (método e caminho do cenário), configuração do servidor (threads, filas), pool de conexões e timeouts de banco ou de chamadas externas, retry e circuit breaker, cache, logs no caminho quente, Dockerfile e limites de CPU e memória.
+- Comece por list_dir na raiz e por search_code; abra só o que importa (no máximo %d arquivos).
+- Só cite arquivos e linhas que você viu nas ferramentas. Se o código não explicar algo, diga.
+- Link de um arquivo no GitHub: %s (troque CAMINHO e N).`,
+		where, s.Branch, s.Commit, b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
+}
+
+const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.`
+
+const codeChatTask = `Para perguntas sobre o código, use as ferramentas. Ao citar um arquivo, use um link markdown no formato [caminho:linha](link do GitHub).`
+
 const chatInstructions = `
 
 Agora você conversa com o usuário sobre a execução analisada. Responda à pergunta com base nas evidências, no relatório (se houver) e no histórico do mesmo cenário. Seja breve: parágrafos curtos e listas com "-" quando ajudar. Não use tabelas nem títulos. Se a pergunta não puder ser respondida com os dados, diga o que faltaria medir.`
@@ -118,9 +160,23 @@ Agora você conversa com o usuário sobre a execução analisada. Responda à pe
 // Input reúne o que a análise precisa.
 type Input struct {
 	Current   RunData
-	Reference *RunData     // execução de referência do mesmo cenário (nil se não houver ou se for a própria)
-	History   []HistoryRow // outras execuções do mesmo cenário (para o chat)
-	Report    *Report      // relatório já salvo (para o chat)
+	Reference *RunData          // execução de referência do mesmo cenário (nil se não houver ou se for a própria)
+	History   []HistoryRow      // outras execuções do mesmo cenário (para o chat)
+	Report    *Report           // relatório já salvo (para o chat)
+	Code      *coderepo.Browser // código da aplicação (nil se o cenário não tem repositório)
+}
+
+func codeTools(b *coderepo.Browser) []ai.Tool {
+	if b == nil {
+		return nil
+	}
+	var out []ai.Tool
+	for _, spec := range b.Specs() {
+		name := spec.Name
+		out = append(out, ai.Tool{Name: name, Description: spec.Description, Properties: spec.Properties, Required: spec.Required,
+			Run: func(_ context.Context, in json.RawMessage) (string, error) { return b.Call(name, in) }})
+	}
+	return out
 }
 
 func evidence(in Input) string {
@@ -147,13 +203,19 @@ func Analyze(ctx context.Context, p ai.Provider, model string, in Input) (Report
 	if in.Reference != nil {
 		task += "\n" + regressionTask
 	}
+	system := baseInstructions
+	if in.Code != nil {
+		system += codeInstructions(in.Code)
+		task += "\n" + codeReportTask
+	}
 	resp, err := p.Generate(ctx, ai.Request{
 		Model:     model,
-		System:    baseInstructions,
+		System:    system,
 		Context:   evidence(in),
 		Messages:  []ai.Message{{Role: "user", Content: task}},
-		Schema:    reportSchema(in.Reference != nil),
+		Schema:    reportSchema(in.Reference != nil, in.Code != nil),
 		MaxTokens: 16000,
+		Tools:     codeTools(in.Code),
 	})
 	if err != nil {
 		return Report{}, err
@@ -169,17 +231,34 @@ func Analyze(ctx context.Context, p ai.Provider, model string, in Input) (Report
 	if in.Reference != nil {
 		rep.ReferenceRunID = in.Reference.Run.ID
 	}
+	if in.Code != nil {
+		rep.Code = &CodeInfo{Snapshot: in.Code.Snap, FilesRead: append([]string{}, in.Code.Read...)}
+		for i, f := range rep.Content.Fixes {
+			if f.File != "" {
+				rep.Content.Fixes[i].URL = in.Code.Snap.URL(f.File, f.Line)
+			}
+		}
+	}
 	return rep, nil
 }
 
 // Chat responde a última pergunta de history (que deve terminar com uma mensagem do usuário).
 func Chat(ctx context.Context, p ai.Provider, model string, in Input, history []ai.Message) (string, ai.Response, error) {
+	system := baseInstructions
+	if in.Code != nil {
+		system += codeInstructions(in.Code)
+	}
+	system += chatInstructions
+	if in.Code != nil {
+		system += "\n" + codeChatTask
+	}
 	resp, err := p.Generate(ctx, ai.Request{
 		Model:     model,
-		System:    baseInstructions + chatInstructions,
+		System:    system,
 		Context:   evidence(in),
 		Messages:  history,
 		MaxTokens: 8000,
+		Tools:     codeTools(in.Code),
 	})
 	if err != nil {
 		return "", resp, err

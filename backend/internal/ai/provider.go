@@ -5,6 +5,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -24,6 +25,20 @@ type Request struct {
 	// Schema, quando presente, obriga a resposta a ser um JSON nesse JSON Schema.
 	Schema    map[string]any
 	MaxTokens int
+	// Tools são ferramentas que o modelo pode chamar antes de responder (ex.: ler o código).
+	Tools []Tool
+	// MaxTurns limita as idas e voltas com ferramentas (padrão 40).
+	MaxTurns int
+}
+
+// Tool é uma ferramenta executada pelo app quando o modelo pede.
+type Tool struct {
+	Name        string
+	Description string
+	Properties  map[string]any // propriedades do JSON Schema da entrada
+	Required    []string
+	// Run devolve o texto do resultado; um erro vira resultado de erro para o modelo (não aborta).
+	Run func(ctx context.Context, input json.RawMessage) (string, error)
 }
 
 // Response é a resposta do modelo.
@@ -33,6 +48,7 @@ type Response struct {
 	InputTokens     int64  `json:"inputTokens"`
 	OutputTokens    int64  `json:"outputTokens"`
 	CacheReadTokens int64  `json:"cacheReadTokens,omitempty"`
+	ToolCalls       int    `json:"toolCalls,omitempty"`
 }
 
 // Provider é implementado por cada provedor (Anthropic no MVP).

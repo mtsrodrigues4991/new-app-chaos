@@ -442,6 +442,8 @@ export default function ScenarioEditor({ id }: { id?: string }) {
 
       <SLOFields draft={draft} set={set} />
 
+      <CodeFields draft={draft} set={set} />
+
       {error && <p className="error">Erro: {error}</p>}
       <div className="actions">
         <button className="primary" disabled={saving} onClick={() => save(true)}>
@@ -501,6 +503,35 @@ function SLOFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => v
       <button type="button" className="link" onClick={() => set({ slo: defaultSLO, requestTimeoutSeconds: undefined })}>
         Voltar aos valores sugeridos
       </button>
+    </fieldset>
+  );
+}
+
+// Repositório da aplicação: a IA navega no código para explicar o resultado e sugerir correções.
+function CodeFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => void }) {
+  const code = draft.code ?? { repo: '', branch: 'main', path: '' };
+  const setCode = (patch: Partial<typeof code>) => set({ code: { ...code, ...patch } });
+  return (
+    <fieldset>
+      <legend>Código da aplicação (opcional)</legend>
+      <p className="muted small">
+        Com o repositório no GitHub, a IA lê o código na análise e no chat e aponta arquivo e linha nas sugestões de correção. Repositório privado precisa do{' '}
+        <code>GITHUB_TOKEN</code> no <code>.env</code> (veja Configurações).
+      </p>
+      <div className="row">
+        <label className="grow">
+          Repositório
+          <input value={code.repo} placeholder="dono/repo ou https://github.com/dono/repo" onChange={(e) => setCode({ repo: e.target.value })} />
+        </label>
+        <label>
+          Branch
+          <input value={code.branch} placeholder="main" onChange={(e) => setCode({ branch: e.target.value })} />
+        </label>
+        <label>
+          Subpasta (opcional)
+          <input value={code.path ?? ''} placeholder="ex.: services/api" onChange={(e) => setCode({ path: e.target.value })} />
+        </label>
+      </div>
     </fieldset>
   );
 }

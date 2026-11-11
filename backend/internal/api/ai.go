@@ -14,6 +14,7 @@ import (
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/verdict"
 )
@@ -24,8 +25,8 @@ const (
 	settingModel    = "ai.model"
 )
 
-// Uma análise ou resposta do chat pode levar alguns minutos.
-const aiTimeout = 5 * time.Minute
+// Uma análise ou resposta do chat pode levar alguns minutos (mais ainda lendo o código).
+const aiTimeout = 10 * time.Minute
 
 // busy evita duas chamadas de IA simultâneas para a mesma execução (clique duplo, duas abas).
 var busy sync.Map
@@ -117,6 +118,23 @@ func (s *Server) input(ctx context.Context, cur analysis.RunData, withHistory bo
 	return in, nil
 }
 
+// codeBrowser baixa (ou pega do cache) o código configurado no cenário. O cenário atual vale
+// mais que a cópia da execução: o repositório pode ter sido configurado depois de rodar.
+func (s *Server) codeBrowser(ctx context.Context, run store.Run) (*coderepo.Browser, error) {
+	code := run.Scenario.Code
+	if sc, err := s.Store.GetScenario(ctx, run.ScenarioID); err == nil && sc.Code != nil {
+		code = sc.Code
+	}
+	if code == nil || code.Repo == "" || s.Code == nil {
+		return nil, nil
+	}
+	snap, err := s.Code.Fetch(ctx, code.Repo, code.Branch, code.Path)
+	if err != nil {
+		return nil, fmt.Errorf("não consegui baixar o código de %s: %w", code.Repo, err)
+	}
+	return coderepo.NewBrowser(snap), nil
+}
+
 func aiStatus(err error) int {
 	var refusal *ai.RefusalError
 	switch {
@@ -165,6 +183,10 @@ func (s *Server) analyzeRun(w http.ResponseWriter, r *http.Request) {
 	// Segue mesmo se o navegador fechar: o relatório fica salvo para a próxima visita.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), aiTimeout)
 	defer cancel()
+	if in.Code, err = s.codeBrowser(ctx, cur.Run); err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
 	rep, err := analysis.Analyze(ctx, p, model, in)
 	if err != nil {
 		writeErr(w, aiStatus(err), err)
@@ -270,6 +292,10 @@ func (s *Server) postChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), aiTimeout)
 	defer cancel()
+	if in.Code, err = s.codeBrowser(ctx, cur.Run); err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
 	q, err := s.Store.AddChatMessage(ctx, id, "user", body.Message)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -306,6 +332,8 @@ type aiSettings struct {
 	Provider  string            `json:"provider"`
 	Model     string            `json:"model"`
 	Providers []ai.ProviderInfo `json:"providers,omitempty"`
+	// GitHubToken diz só se GITHUB_TOKEN está definido (o valor nunca sai do backend).
+	GitHubToken bool `json:"githubTokenConfigured"`
 }
 
 // GET /api/settings/ai
@@ -325,7 +353,7 @@ func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, aiSettings{Provider: pid, Model: model, Providers: s.AI.List()})
+	writeJSON(w, http.StatusOK, aiSettings{Provider: pid, Model: model, Providers: s.AI.List(), GitHubToken: s.Code != nil && s.Code.Token != ""})
 }
 
 // PUT /api/settings/ai {"provider": "...", "model": "..."}
@@ -353,5 +381,6 @@ func (s *Server) putAISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Providers = s.AI.List()
+	body.GitHubToken = s.Code != nil && s.Code.Token != ""
 	writeJSON(w, http.StatusOK, body)
 }

@@ -31,6 +31,7 @@ Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos:
 - **Análise com IA, sob demanda:** o botão "Analisar com IA" manda as evidências da execução (cenário, veredito, falhas com instantes reais, série por segundo com carga, sonda, CPU e memória) e salva um relatório com resumo, ponto de quebra, explicação da nota, efeito de cada falha, causas prováveis e correções.
   - **Regressão:** marque uma execução como referência do cenário (☆ no veredito). As próximas análises do mesmo cenário trazem a comparação com ela. Nunca compara com outro cenário ou alvo.
   - **Chat** em cada execução: a IA vê a execução, o relatório, a referência e o histórico do mesmo cenário. A conversa fica salva.
+  - **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa essa branch (fica em cache por commit), navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
   - **Relatório imprimível:** o botão "Imprimir / salvar PDF" na execução gera um relatório em A4, sempre em tema claro, com números, veredito, falhas, gráficos e a análise da IA (sem o chat).
   - **Configurações:** escolhe provedor e modelo (padrão Claude Opus 5.5; Sonnet 5.5 e Haiku 5.5 são mais baratos). A camada de provedor (`backend/internal/ai`) é trocável.
 
@@ -51,7 +52,9 @@ cp .env.example .env   # e preencha ANTHROPIC_API_KEY
 docker compose up -d
 ```
 
-A chave fica só no backend: não vai para o banco nem para o navegador. Sem ela, todo o resto funciona e o botão da IA explica o que falta. Cada análise ou pergunta no chat consome créditos da sua conta (uma execução de 1 minuto manda uns 6 mil tokens; as longas são agrupadas em blocos e ficam por volta de 20 mil).
+Para a IA ler o código de um repositório **privado**, acrescente no mesmo `.env` um `GITHUB_TOKEN` fine-grained só com *Contents: Read-only* nos repositórios desejados. Públicos funcionam sem token.
+
+As chaves ficam só no backend: não vão para o banco nem para o navegador. Sem ela, todo o resto funciona e o botão da IA explica o que falta. Cada análise ou pergunta no chat consome créditos da sua conta (uma execução de 1 minuto manda uns 6 mil tokens; as longas são agrupadas em blocos e ficam por volta de 20 mil).
 
 Na primeira execução de um cenário, o backend baixa a imagem `grafana/k6` (pode levar um minuto). Os dados ficam no volume `app-data`; para zerar, `docker compose down -v`.
 
@@ -88,6 +91,7 @@ backend/            API em Go
   internal/probe/   sonda HTTP do modo só caos
   internal/verdict/ SLOs por segundo e nota de resiliência (sem IA)
   internal/analysis/ evidências para a IA, relatório e chat
+  internal/coderepo/ download do código da aplicação no GitHub e ferramentas de leitura para a IA
   internal/ai/      camada de provedor de IA trocável (Anthropic/Claude no MVP)
   internal/store/   persistência em SQLite
 frontend/           React + TypeScript + Vite
@@ -100,6 +104,6 @@ docs/               especificação
 1. Esqueleto (feito)
 2. Carga: editor de endpoints e perfil, execução do k6, gráficos ao vivo (feito; falta a curva desenhável)
 3. Caos: injetor, as cinco falhas, linha do tempo arrastável, reversão garantida (feito)
-4. IA: SLOs e veredito, relatório via Claude sob demanda, comparação com referência, chat (feito)
+4. IA: SLOs e veredito, relatório via Claude sob demanda, comparação com referência, chat (feito); relatório imprimível e leitura do código da aplicação (feito)
 
 Depois: VMs via SSH, Kubernetes, outros provedores de IA, CLI para CI, SaaS.
