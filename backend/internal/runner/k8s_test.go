@@ -108,7 +108,10 @@ func TestK8sApplyFaultStuckFinalizer(t *testing.T) {
 		o["status"] = obj{"experiment": obj{"containerRecords": []obj{{"phase": "Not Injected", "events": []obj{{"type": "Failed", "message": "modprobe: FATAL: Module ebtables not found"}}}}}}
 	}
 	tg, _ := p.Resolve(context.Background(), k8sScenario("shop", "api"))
-	_, err := tg.ApplyFault(context.Background(), "r1", scenario.Fault{Type: scenario.FaultHTTPAbort, DurationSeconds: 5})
+	// Prazo vindo do runner (fim do bloco), mais curto que o InjectTimeout: o motivo tem que vir mesmo assim.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultHTTPAbort, DurationSeconds: 5})
 	if err == nil || !strings.Contains(err.Error(), "ebtables") || !strings.Contains(err.Error(), "WSL2") {
 		t.Fatalf("erro=%v", err)
 	}

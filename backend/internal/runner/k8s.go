@@ -251,20 +251,31 @@ func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fau
 		}()
 		return "; o recurso está sendo removido do cluster"
 	}
-	deadline := time.Now().Add(t.p.InjectTimeout)
+	started := time.Now()
+	deadline := started.Add(t.p.InjectTimeout)
+	type status struct {
+		Status chaosmesh.Status `json:"status"`
+	}
 	for {
-		var got struct {
-			Status chaosmesh.Status `json:"status"`
-		}
-		if err := c.Do(ctx, "GET", path, nil, &got); err != nil && !errors.Is(err, kube.ErrNotFound) {
+		var got status
+		err := c.Do(ctx, "GET", path, nil, &got)
+		timedOut := time.Now().After(deadline) || ctx.Err() != nil
+		if err != nil && !errors.Is(err, kube.ErrNotFound) && !timedOut {
 			return nil, fmt.Errorf("lendo %s: %w%s", kind.Kind, err, discard())
+		}
+		if err != nil && timedOut {
+			// O prazo acabou no meio da leitura: lê de novo, com um contexto próprio, para
+			// trazer o motivo que o Chaos Mesh registrou (ex.: ebtables).
+			rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = c.Do(rctx, "GET", path, nil, &got)
+			cancel()
 		}
 		ok, lastErr := got.Status.Injected()
 		if ok {
 			return revert, nil
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			msg := fmt.Sprintf("o Chaos Mesh não confirmou a falha em %s", t.p.InjectTimeout)
+		if timedOut {
+			msg := fmt.Sprintf("o Chaos Mesh não confirmou a falha em %s", time.Since(started).Round(time.Second))
 			if lastErr != "" {
 				msg += ": " + lastErr
 			}
