@@ -40,6 +40,8 @@ type Fix struct {
 	Line int    `json:"line,omitempty"`
 	Code string `json:"code,omitempty"`
 	URL  string `json:"url,omitempty"` // link para o arquivo no GitHub, no commit analisado
+	// NewFile marca um arquivo citado que não existe no repositório (a criar).
+	NewFile bool `json:"newFile,omitempty"`
 }
 
 // CodeInfo diz qual versão do código a IA leu.
@@ -83,7 +85,7 @@ func reportSchema(withRegression, withCode bool) map[string]any {
 	}
 	fixRequired := []string{"title", "detail"}
 	if withCode {
-		fix["file"] = str("Arquivo a mudar, relativo à raiz do repositório (como nas ferramentas); vazio se a correção não é no código")
+		fix["file"] = str("Arquivo a mudar (ou a criar), relativo à raiz do repositório, exatamente como aparece na árvore e nas ferramentas; vazio se a correção não é no código")
 		fix["line"] = map[string]any{"type": "integer", "description": "Linha do ponto a mudar; 0 se não se aplica"}
 		fix["code"] = str("Trecho de código ou configuração proposto (só o trecho alterado); vazio se não se aplica")
 		fixRequired = append(fixRequired, "file", "line", "code")
@@ -142,11 +144,25 @@ func codeInstructions(b *coderepo.Browser) string {
 	return fmt.Sprintf(`
 
 Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação.
-- Investigue no código o que explica o comportamento observado antes de concluir: o tratamento dos endpoints testados (método e caminho do cenário), configuração do servidor (threads, filas), pool de conexões e timeouts de banco ou de chamadas externas, retry e circuit breaker, cache, logs no caminho quente, Dockerfile e limites de CPU e memória.
-- Comece por list_dir na raiz e por search_code; abra só o que importa (no máximo %d arquivos).
-- Só cite arquivos e linhas que você viu nas ferramentas. Se o código não explicar algo, diga.
+
+Arquivos do repositório:
+<arvore>
+%s
+</arvore>
+
+Como investigar:
+- Use a árvore acima para escolher o que abrir; não invente caminhos nem extensões (ex.: se existe application.yaml, não cite application.yml).
+- Antes de concluir, abra com read_file pelo menos: o código que atende os endpoints testados (método e caminho do cenário), a configuração principal da aplicação (ex.: application.yaml/properties, .env de exemplo, config do servidor) e o arquivo de dependências (pom.xml, build.gradle, package.json, go.mod, requirements.txt), além de Dockerfile e compose se existirem.
+- Procure o que explica o comportamento observado: threads e filas do servidor, pool de conexões e timeouts de banco ou de chamadas externas, retry e circuit breaker, cache, logs no caminho quente, limites de CPU e memória, healthcheck e tempo de partida.
+- No máximo %d arquivos podem ser abertos; reler outro trecho do mesmo arquivo não conta.
+
+Regras para citar código:
+- Só cite um arquivo existente depois de abri-lo com read_file, com a linha que você viu. Se a configuração não está no arquivo, diga isso e aponte a linha onde ela entraria.
+- Escreva o trecho proposto no formato e na linguagem do próprio arquivo (YAML num .yaml, properties num .properties, Java num .java).
+- Antes de supor uma biblioteca ou recurso (ex.: Spring Boot Actuator, Resilience4j), confira no arquivo de dependências; se não estiver, inclua a dependência na sugestão.
+- Para um arquivo que ainda não existe (ex.: Dockerfile), use o caminho onde ele deve ser criado, line 0, e diga que é um arquivo novo.
 - Link de um arquivo no GitHub: %s (troque CAMINHO e N).`,
-		where, s.Branch, s.Commit, b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
+		where, s.Branch, s.Commit, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
 }
 
 const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.`
@@ -156,6 +172,26 @@ const codeChatTask = `Para perguntas sobre o código, use as ferramentas. Ao cit
 const chatInstructions = `
 
 Agora você conversa com o usuário sobre a execução analisada. Responda à pergunta com base nas evidências, no relatório (se houver) e no histórico do mesmo cenário. Seja breve: parágrafos curtos e listas com "-" quando ajudar. Não use tabelas nem títulos. Se a pergunta não puder ser respondida com os dados, diga o que faltaria medir.`
+
+// checkFix confere o arquivo citado numa correção: corrige o caminho quando a IA
+// errou só a extensão ou a pasta, descarta linha fora do arquivo e não gera link
+// para arquivo que não existe (marca como arquivo novo).
+func checkFix(b *coderepo.Browser, f *Fix) {
+	if strings.TrimSpace(f.File) == "" {
+		f.File, f.Line, f.URL = "", 0, ""
+		return
+	}
+	found, lines, ok := b.Locate(f.File)
+	if !ok {
+		f.NewFile, f.Line, f.URL = true, 0, ""
+		return
+	}
+	f.File = found
+	if f.Line < 0 || f.Line > lines {
+		f.Line = 0
+	}
+	f.URL = b.Snap.URL(f.File, f.Line)
+}
 
 // Input reúne o que a análise precisa.
 type Input struct {
@@ -233,10 +269,8 @@ func Analyze(ctx context.Context, p ai.Provider, model string, in Input) (Report
 	}
 	if in.Code != nil {
 		rep.Code = &CodeInfo{Snapshot: in.Code.Snap, FilesRead: append([]string{}, in.Code.Read...)}
-		for i, f := range rep.Content.Fixes {
-			if f.File != "" {
-				rep.Content.Fixes[i].URL = in.Code.Snap.URL(f.File, f.Line)
-			}
+		for i := range rep.Content.Fixes {
+			checkFix(in.Code, &rep.Content.Fixes[i])
 		}
 	}
 	return rep, nil

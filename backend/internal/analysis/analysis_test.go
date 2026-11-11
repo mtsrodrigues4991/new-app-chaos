@@ -3,6 +3,8 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -97,23 +99,41 @@ func TestAnalyzeWithReference(t *testing.T) {
 
 func TestAnalyzeWithCode(t *testing.T) {
 	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	os.WriteFile(filepath.Join(root, "src", "app.yaml"), []byte("a\nb\nc\nmaximum-pool-size: 10\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "pom.xml"), []byte("<project/>\n"), 0o644)
 	snap := coderepo.Snapshot{Repo: "dono/app", Branch: "main", Commit: "abc", Root: root}
 	b := coderepo.NewBrowser(snap)
 	f := &fake{resp: `{"summary":"s","scoreExplanation":"e","breakingPoint":{"found":false,"description":"d"},
 		"faultFindings":[],"causes":["c"],"fixes":[{"title":"Pool","detail":"d","file":"src/app.yml","line":4,"code":"maximum-pool-size: 20"},
-		{"title":"Réplicas","detail":"d","file":"","line":0,"code":""}]}`}
+		{"title":"Réplicas","detail":"d","file":"","line":0,"code":""},
+		{"title":"Imagem","detail":"d","file":"Dockerfile","line":3,"code":"FROM x"},
+		{"title":"Pom","detail":"d","file":"pom.xml","line":99,"code":"<dep/>"}]}`}
 	rep, err := Analyze(context.Background(), f, "m", Input{Current: runData("r", 20), Code: b})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.got.Tools) != 3 || !strings.Contains(f.got.System, "dono/app") {
+	if len(f.got.Tools) != 3 || !strings.Contains(f.got.System, "dono/app") || !strings.Contains(f.got.System, "src/app.yaml") {
 		t.Fatalf("deveria oferecer as 3 ferramentas e citar o repositório: %d", len(f.got.Tools))
 	}
 	fix := f.got.Schema["properties"].(map[string]any)["fixes"].(map[string]any)["items"].(map[string]any)
 	if _, ok := fix["properties"].(map[string]any)["file"]; !ok {
 		t.Fatal("schema deveria pedir file/line/code com o código disponível")
 	}
-	if rep.Code == nil || rep.Code.Commit != "abc" || rep.Content.Fixes[0].URL != "https://github.com/dono/app/blob/abc/src/app.yml#L4" || rep.Content.Fixes[1].URL != "" {
-		t.Fatalf("relatório: %+v %+v", rep.Code, rep.Content.Fixes)
+	fx := rep.Content.Fixes
+	if rep.Code == nil || rep.Code.Commit != "abc" || fx[1].URL != "" {
+		t.Fatalf("relatório: %+v %+v", rep.Code, fx)
+	}
+	// .yml citado, mas o arquivo é .yaml: corrige o caminho e o link.
+	if fx[0].File != "src/app.yaml" || fx[0].URL != "https://github.com/dono/app/blob/abc/src/app.yaml#L4" || fx[0].NewFile {
+		t.Fatalf("correção do caminho: %+v", fx[0])
+	}
+	// Arquivo que não existe: sem link, marcado como novo.
+	if fx[2].URL != "" || !fx[2].NewFile || fx[2].Line != 0 {
+		t.Fatalf("arquivo novo: %+v", fx[2])
+	}
+	// Linha além do fim do arquivo: link sem âncora.
+	if fx[3].Line != 0 || fx[3].URL != "https://github.com/dono/app/blob/abc/pom.xml" {
+		t.Fatalf("linha fora do arquivo: %+v", fx[3])
 	}
 }
