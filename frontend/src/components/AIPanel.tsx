@@ -161,6 +161,7 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
                     ) : (
                       <code>{f.file}</code>
                     )}
+                    {f.newFile && <span className="muted"> (arquivo novo)</span>}
                   </div>
                 )}
                 {f.code && <pre className="code">{f.code}</pre>}

@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -126,5 +128,33 @@ func TestFetchErrors(t *testing.T) {
 	f.Token = "tok"
 	if _, err := f.Fetch(context.Background(), "dono/repo", "main", "nao/existe"); err == nil || !strings.Contains(err.Error(), "subpasta") {
 		t.Fatalf("subpasta inexistente: %v", err)
+	}
+}
+
+func TestTreeAndLocate(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"pom.xml", "src/main/resources/application.yaml", "src/main/java/App.java", "config/only.properties"} {
+		full := filepath.Join(root, filepath.FromSlash(f))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte("l1\nl2\n"), 0o644)
+	}
+	b := NewBrowser(Snapshot{Repo: "d/r", Commit: "c", Root: root})
+	tree := b.Tree()
+	if !strings.Contains(tree, "src/main/resources/application.yaml") || !strings.Contains(tree, "pom.xml") {
+		t.Fatalf("árvore: %q", tree)
+	}
+	cases := map[string]string{
+		"pom.xml":                                   "pom.xml",
+		"src/main/resources/application.yml":        "src/main/resources/application.yaml",
+		"src/main/resources/application.properties": "src/main/resources/application.yaml",
+		"only.properties":                           "config/only.properties",
+		"Dockerfile":                                "",
+		"../../etc/passwd":                          "",
+	}
+	for in, want := range cases {
+		got, _, ok := b.Locate(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("Locate(%q) = %q %v, queria %q", in, got, ok, want)
+		}
 	}
 }

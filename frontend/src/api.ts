@@ -141,7 +141,7 @@ export type ReportContent = {
   breakingPoint: { found: boolean; description: string };
   faultFindings: { faultId: string; finding: string }[];
   causes: string[];
-  fixes: { title: string; detail: string; file?: string; line?: number; code?: string; url?: string }[];
+  fixes: { title: string; detail: string; file?: string; line?: number; code?: string; url?: string; newFile?: boolean }[];
   regression?: { verdict: 'melhorou' | 'igual' | 'piorou'; summary: string; items: string[] };
 };
 
