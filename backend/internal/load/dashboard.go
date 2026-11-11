@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Snapshot é o resumo de um segundo que o dashboard embutido do k6 publica.
@@ -33,6 +34,9 @@ type DashboardReader struct {
 	names   map[string]bool
 	startMs float64
 	trend   []string
+	// Origin, quando definido, é o início da execução: os segundos passam a contar dele, e não
+	// do início do k6 (que sobe uns segundos depois). Assim carga, falhas e CPU ficam alinhadas.
+	Origin time.Time
 }
 
 func NewDashboardReader() *DashboardReader {
@@ -129,8 +133,12 @@ func (d *DashboardReader) build(by map[string][]float64) *Snapshot {
 		s.VUs, s.HasVUs = v[0], true
 	}
 	// "time" é o fim do período de 1 s; o período começa 1 s antes.
-	if t := at("time", 0); t > 0 && d.startMs > 0 {
-		s.T = int64((t-d.startMs)/1000) - 1
+	origin := d.startMs
+	if !d.Origin.IsZero() {
+		origin = float64(d.Origin.UnixMilli())
+	}
+	if t := at("time", 0); t > 0 && origin > 0 {
+		s.T = int64((t-origin)/1000) - 1
 		if s.T < 0 {
 			s.T = 0
 		}
@@ -168,7 +176,8 @@ func ReadSSE(r io.Reader, onEvent func(name string, data []byte) bool) error {
 }
 
 // StreamDashboard conecta no /events do dashboard do k6 e entrega os resumos até o fim do teste.
-func StreamDashboard(ctx context.Context, url string, onSnapshot func(*Snapshot)) error {
+// origin é o início da execução (ver DashboardReader.Origin); zero = início do k6.
+func StreamDashboard(ctx context.Context, url string, origin time.Time, onSnapshot func(*Snapshot)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -182,6 +191,7 @@ func StreamDashboard(ctx context.Context, url string, onSnapshot func(*Snapshot)
 		return fmt.Errorf("dashboard do k6 respondeu %d", resp.StatusCode)
 	}
 	d := NewDashboardReader()
+	d.Origin = origin
 	var procErr error
 	err = ReadSSE(resp.Body, func(name string, data []byte) bool {
 		snap, stop, err := d.Event(name, data)

@@ -74,7 +74,7 @@ function pick() {
 
 export default function () {
   const e = pick();
-  const res = http.request(e.method, BASE_URL + e.path, e.body || null, { headers: e.headers || {}, timeout: '10s' });
+  const res = http.request(e.method, BASE_URL + e.path, e.body || null, { headers: e.headers || {}, timeout: '%ds' });
   const s = res.status;
   if (s >= 500) status5xx.add(1);
   else if (s >= 400) status4xx.add(1);
@@ -82,6 +82,6 @@ export default function () {
   else if (s >= 200) status2xx.add(1);
   else statusNone.add(1);
 }
-`, strings.TrimRight(s.Target.BaseURL, "/"), endpointsJSON, stagesJSON)
+`, strings.TrimRight(s.Target.BaseURL, "/"), endpointsJSON, stagesJSON, s.RequestTimeout())
 	return b.String(), nil
 }

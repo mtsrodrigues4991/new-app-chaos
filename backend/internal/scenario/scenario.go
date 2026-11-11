@@ -74,12 +74,19 @@ type Fault struct {
 	Params          map[string]string `json:"params"`          // ex.: {"latency":"200"}
 }
 
-// SLO é um critério de aprovação usado no veredito (marco 4).
+// SLO são os critérios de aprovação do veredito. Cada segundo da execução é "dentro" ou "fora"
+// dos SLOs; a nota de resiliência sai daí (ver internal/verdict).
 type SLO struct {
-	Metric    string  `json:"metric"`    // ex.: p95_ms, error_rate
-	Operator  string  `json:"operator"`  // "<" ou "<="
-	Threshold float64 `json:"threshold"` // ex.: 300 (ms) ou 0.01
+	P95Ms           float64 `json:"p95Ms"`           // p95 da carga abaixo disso (modos com carga)
+	ErrorRatePct    float64 `json:"errorRatePct"`    // taxa de erro da carga abaixo disso, em %
+	AvailabilityPct float64 `json:"availabilityPct"` // disponibilidade da sonda, em % (modo só caos)
 }
+
+// DefaultSLO são os valores sugeridos ao criar um cenário.
+var DefaultSLO = SLO{P95Ms: 500, ErrorRatePct: 1, AvailabilityPct: 99}
+
+// DefaultRequestTimeout é o tempo máximo de cada requisição do k6 quando o cenário não define.
+const DefaultRequestTimeout = 10
 
 // Scenario junta tudo que define um teste.
 type Scenario struct {
@@ -92,7 +99,26 @@ type Scenario struct {
 	Faults    []Fault    `json:"faults,omitempty"`
 	// ProbePath é o endpoint consultado a cada 1 s no modo só caos (ex.: /health).
 	ProbePath string `json:"probePath,omitempty"`
-	SLOs      []SLO  `json:"slos,omitempty"`
+	// SLO ausente (cenários antigos) usa DefaultSLO.
+	SLO *SLO `json:"slo,omitempty"`
+	// RequestTimeoutSeconds limita cada requisição da carga; a que estoura conta como erro.
+	RequestTimeoutSeconds int `json:"requestTimeoutSeconds,omitempty"`
+}
+
+// EffectiveSLO devolve os SLOs do cenário ou os sugeridos.
+func (s Scenario) EffectiveSLO() SLO {
+	if s.SLO == nil {
+		return DefaultSLO
+	}
+	return *s.SLO
+}
+
+// RequestTimeout devolve o timeout por requisição em segundos.
+func (s Scenario) RequestTimeout() int {
+	if s.RequestTimeoutSeconds <= 0 {
+		return DefaultRequestTimeout
+	}
+	return s.RequestTimeoutSeconds
 }
 
 // EffectiveMode trata cenários antigos (sem modo) como só carga.
@@ -148,6 +174,20 @@ func (s Scenario) Validate() error {
 		}
 		if _, err := s.Profile.Stages(); err != nil {
 			errs = append(errs, err.Error())
+		}
+	}
+	if s.RequestTimeoutSeconds < 0 || s.RequestTimeoutSeconds > 120 {
+		errs = append(errs, "timeout por requisição deve estar entre 1 s e 120 s")
+	}
+	if s.SLO != nil {
+		if s.SLO.P95Ms <= 0 {
+			errs = append(errs, "SLO de p95 deve ser maior que zero")
+		}
+		if s.SLO.ErrorRatePct < 0 || s.SLO.ErrorRatePct > 100 {
+			errs = append(errs, "SLO de taxa de erro deve estar entre 0% e 100%")
+		}
+		if s.SLO.AvailabilityPct < 0 || s.SLO.AvailabilityPct > 100 {
+			errs = append(errs, "SLO de disponibilidade deve estar entre 0% e 100%")
 		}
 	}
 	if s.EffectiveMode() == ModeChaos && !strings.HasPrefix(s.ProbePath, "/") {

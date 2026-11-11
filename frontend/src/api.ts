@@ -43,17 +43,26 @@ export type Scenario = {
   profile: Profile;
   faults?: Fault[];
   probePath?: string;
+  slo?: SLO;
+  requestTimeoutSeconds?: number;
 };
+
+export type SLO = { p95Ms: number; errorRatePct: number; availabilityPct: number };
+
+export const defaultSLO: SLO = { p95Ms: 500, errorRatePct: 1, availabilityPct: 99 };
 
 export type RunStatus = 'pending' | 'running' | 'completed' | 'aborted' | 'failed';
 
 export type Window = {
   t: number;
-  p50: number;
-  p95: number;
-  p99: number;
+  // Nulos num segundo sem requisição concluída (lacuna no gráfico).
+  p50: number | null;
+  p95: number | null;
+  p99: number | null;
   rps: number;
-  errorRate: number;
+  errorRate: number | null;
+  // Usuários ativos e nenhuma resposta: requisições presas (alvo fora do ar).
+  stalled?: boolean;
   s2xx: number;
   s3xx: number;
   s4xx: number;
@@ -90,7 +99,72 @@ export type Run = {
   endedAt?: string;
 };
 
-export type RunDetail = Run & { windows: Window[]; faultEvents: FaultEvent[] };
+export type Grade = 'resiliente' | 'atencao' | 'fragil' | 'sem_dados';
+
+export type Phase = { seconds: number; inSlo: number; compliancePct: number };
+
+export type FaultResult = {
+  faultId: string;
+  type: FaultType;
+  params?: Record<string, string>;
+  state: FaultState;
+  start: number;
+  end: number;
+  during: Phase;
+  recovered: boolean;
+  recoverySeconds?: number;
+  worstP95Ms?: number;
+  worstErrorRatePct?: number;
+  stalledSeconds?: number;
+  probeFailures?: number;
+  score: number;
+};
+
+export type Verdict = {
+  score: number;
+  grade: Grade;
+  slo: SLO;
+  overall: Phase;
+  baseline: Phase;
+  faults: FaultResult[];
+  checks: { name: string; target: string; actual: string; pass: boolean }[];
+  notes?: string[];
+};
+
+export type ReportContent = {
+  summary: string;
+  scoreExplanation: string;
+  breakingPoint: { found: boolean; description: string };
+  faultFindings: { faultId: string; finding: string }[];
+  causes: string[];
+  fixes: { title: string; detail: string }[];
+  regression?: { verdict: 'melhorou' | 'igual' | 'piorou'; summary: string; items: string[] };
+};
+
+export type Report = {
+  content: ReportContent;
+  provider: string;
+  usage: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number };
+  referenceRunId?: string;
+  score: number;
+  createdAt: string;
+};
+
+export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: string; createdAt: string };
+
+export type AIModel = { id: string; label: string; note?: string };
+
+export type AIProvider = { id: string; label: string; keyEnv: string; configured: boolean; defaultModel: string; models: AIModel[] };
+
+export type AISettings = { provider: string; model: string; providers?: AIProvider[] };
+
+export type RunDetail = Run & {
+  windows: Window[];
+  faultEvents: FaultEvent[];
+  verdict?: Verdict;
+  referenceRunId?: string;
+  analysis?: Report;
+};
 
 export type LiveEvent =
   | { type: 'windows'; windows: Window[] }
@@ -122,6 +196,13 @@ export const api = {
   runs: (scenarioId?: string) => call<Run[]>('GET', `/api/runs${scenarioId ? `?scenarioId=${scenarioId}` : ''}`),
   run: (id: string) => call<RunDetail>('GET', `/api/runs/${id}`),
   abortRun: (id: string) => call<void>('POST', `/api/runs/${id}/abort`),
+  setReference: (scenarioId: string, runId: string) => call<{ referenceRunId: string }>('PUT', `/api/scenarios/${scenarioId}/reference`, { runId }),
+  analyze: (runId: string) => call<Report>('POST', `/api/runs/${runId}/analysis`),
+  chat: (runId: string) => call<ChatMessage[]>('GET', `/api/runs/${runId}/chat`),
+  ask: (runId: string, message: string) => call<ChatMessage[]>('POST', `/api/runs/${runId}/chat`, { message }),
+  clearChat: (runId: string) => call<void>('DELETE', `/api/runs/${runId}/chat`),
+  aiSettings: () => call<AISettings>('GET', '/api/settings/ai'),
+  saveAISettings: (s: AISettings) => call<AISettings>('PUT', '/api/settings/ai', { provider: s.provider, model: s.model }),
 };
 
 // Mesma conversão de perfil em stages do backend (internal/scenario), para a prévia no editor.

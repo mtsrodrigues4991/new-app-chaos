@@ -12,7 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, Fault, FaultEvent, FaultState, LiveEvent, Run, RunDetail, RunStatus, Window } from '../api';
+import { api, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, Verdict, Window } from '../api';
+import AIPanel from '../components/AIPanel';
 import { faultMeta, faultSummary } from '../faults';
 import { modeLabel, profileLabel } from './ScenarioEditor';
 
@@ -156,8 +157,10 @@ export default function RunView({ id }: { id: string }) {
       {run.error && <p className="error">{run.error}</p>}
       {actionError && <p className="error">Não foi possível abortar: {actionError}</p>}
       {mode === 'chaos' ? <ProbeSummary windows={run.windows} /> : <Summary windows={run.windows} />}
-      {bs.length > 0 && <FaultList bands={bs} />}
+      {run.verdict && <VerdictPanel run={run} onReference={(referenceRunId) => setRun({ ...run, referenceRunId })} />}
+      {bs.length > 0 && <FaultList bands={bs} verdict={run.verdict} />}
       <Charts windows={run.windows} bands={bs} chaosOnly={mode === 'chaos'} duration={p.durationSeconds} />
+      {run.verdict && run.windows.length > 0 && <AIPanel run={run} onReport={(analysis) => setRun({ ...run, analysis })} />}
     </section>
   );
 }
@@ -166,8 +169,8 @@ function Summary({ windows }: { windows: Window[] }) {
   const s = useMemo(() => {
     const active = windows.filter((w) => w.rps > 0);
     const reqs = windows.reduce((a, w) => a + w.rps, 0);
-    const failed = windows.reduce((a, w) => a + w.errorRate * w.rps, 0);
-    const p95s = active.map((w) => w.p95).sort((a, b) => a - b);
+    const failed = windows.reduce((a, w) => a + (w.errorRate ?? 0) * w.rps, 0);
+    const p95s = active.flatMap((w) => (w.p95 === null ? [] : [w.p95])).sort((a, b) => a - b);
     return {
       reqs,
       rps: active.length ? reqs / active.length : 0,
@@ -176,6 +179,7 @@ function Summary({ windows }: { windows: Window[] }) {
       errRate: reqs ? failed / reqs : 0,
       cpuMax: Math.max(0, ...windows.map((w) => w.cpu)),
       memMax: Math.max(0, ...windows.map((w) => w.memMb)),
+      stalled: windows.filter((w) => w.stalled).length,
     };
   }, [windows]);
   const n = (v: number, d = 0) => v.toLocaleString('pt-BR', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -185,6 +189,7 @@ function Summary({ windows }: { windows: Window[] }) {
       <Tile label="RPS médio" value={n(s.rps, 1)} />
       <Tile label="p95 típico" value={`${n(s.p95, 1)} ms`} hint={`pior janela: ${n(s.p95max, 1)} ms`} />
       <Tile label="Taxa de erro" value={`${n(s.errRate * 100, 2)}%`} />
+      {s.stalled > 0 && <Tile label="Segundos sem resposta" value={`${s.stalled} s`} hint="usuários ativos e nada respondeu" />}
       <Tile label="CPU do alvo (pico)" value={`${n(s.cpuMax, 1)}%`} hint="100% = 1 núcleo" />
       <Tile label="Memória do alvo (pico)" value={`${n(s.memMax, 1)} MB`} />
     </div>
@@ -200,7 +205,8 @@ const faultStateLabel: Record<FaultState, string> = {
 
 const secs = (v?: number) => (v === undefined ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s`);
 
-function FaultList({ bands }: { bands: Band[] }) {
+function FaultList({ bands, verdict }: { bands: Band[]; verdict?: Verdict }) {
+  const result = (id: string) => verdict?.faults.find((r) => r.faultId === id);
   return (
     <table className="fault-list">
       <thead>
@@ -210,6 +216,13 @@ function FaultList({ bands }: { bands: Band[] }) {
           <th>Aplicada em</th>
           <th>Revertida em</th>
           <th>Estado</th>
+          {verdict && (
+            <>
+              <th title="Segundos dentro dos SLOs enquanto a falha estava ativa">Dentro dos SLOs</th>
+              <th title="Do fim da falha até 3 s seguidos dentro dos SLOs">Recuperação</th>
+              <th>Nota</th>
+            </>
+          )}
         </tr>
       </thead>
       <tbody>
@@ -227,10 +240,109 @@ function FaultList({ bands }: { bands: Band[] }) {
               {ev ? faultStateLabel[ev.state] : 'aguardando'}
               {ev?.error && <div className="small">{ev.error}</div>}
             </td>
+            {verdict && <FaultVerdictCells r={result(f.id)} />}
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+function FaultVerdictCells({ r }: { r?: FaultResult }) {
+  if (!r) return <td colSpan={3} className="muted">—</td>;
+  const worst = [
+    r.worstP95Ms !== undefined ? `pior latência ${r.worstP95Ms.toLocaleString('pt-BR')} ms` : '',
+    r.worstErrorRatePct ? `erro até ${r.worstErrorRatePct.toLocaleString('pt-BR')}%` : '',
+    r.stalledSeconds ? `${r.stalledSeconds} s sem resposta` : '',
+    r.probeFailures ? `${r.probeFailures} sondas falharam` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <>
+      <td>
+        {r.during.seconds ? `${r.during.compliancePct.toLocaleString('pt-BR')}%` : '—'}
+        {worst && <div className="small muted">{worst}</div>}
+      </td>
+      <td>{r.recovered ? `${r.recoverySeconds} s` : <span className="error">não recuperou</span>}</td>
+      <td>
+        <strong className={`grade-text ${gradeOf(r.score)}`}>{r.score}</strong>
+      </td>
+    </>
+  );
+}
+
+const gradeLabel: Record<Grade, string> = {
+  resiliente: 'Resiliente',
+  atencao: 'Atenção',
+  fragil: 'Frágil',
+  sem_dados: 'Sem dados',
+};
+
+const gradeOf = (score: number): Grade => (score >= 90 ? 'resiliente' : score >= 70 ? 'atencao' : 'fragil');
+
+function VerdictPanel({ run, onReference }: { run: RunDetail; onReference: (id: string) => void }) {
+  const v = run.verdict!;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isRef = run.referenceRunId === run.id;
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.setReference(run.scenarioId, isRef ? '' : run.id);
+      onReference(r.referenceRunId);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const isChaos = (run.scenario.mode || 'load') !== 'load';
+  return (
+    <div className="verdict">
+      <div className={`score ${v.grade}`}>
+        <div className="score-value">{v.grade === 'sem_dados' ? '—' : v.score}</div>
+        <div className="score-label">{gradeLabel[v.grade]}</div>
+      </div>
+      <div className="verdict-body">
+        <div className="title-row">
+          <h2>Veredito</h2>
+          <button className={isRef ? 'ref-on' : ''} disabled={busy} onClick={toggle} title="A IA compara as próximas análises deste cenário com a execução de referência">
+            {isRef ? '★ Referência do cenário' : '☆ Marcar como referência'}
+          </button>
+        </div>
+        {run.referenceRunId && !isRef && (
+          <p className="small muted">
+            Referência deste cenário: <a href={`#/execucoes/${run.referenceRunId}`}>outra execução</a>.
+          </p>
+        )}
+        {error && <p className="error">{error}</p>}
+        <ul className="checks">
+          {v.checks.map((c) => (
+            <li key={c.name} className={c.pass ? 'pass' : 'fail'}>
+              <span aria-hidden>{c.pass ? '✓' : '✕'}</span> {c.name} {c.target}: {c.actual}
+            </li>
+          ))}
+          {isChaos && v.baseline.seconds > 0 && (
+            <li className="muted">
+              Fora das falhas: {v.baseline.compliancePct.toLocaleString('pt-BR')}% dos segundos dentro dos SLOs
+            </li>
+          )}
+        </ul>
+        {v.notes?.map((n) => (
+          <p key={n} className="small muted">
+            {n}
+          </p>
+        ))}
+        <p className="small muted">
+          {isChaos
+            ? 'Nota = 20% linha de base + 80% falhas; cada falha vale 70% pelo tempo dentro dos SLOs e 30% pela recuperação (cheia até 5 s, zero a partir de 60 s).'
+            : 'Nota = porcentagem dos segundos dentro dos SLOs.'}{' '}
+          <a href="#analise">Ver análise da IA ↓</a>
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -290,11 +402,23 @@ function ChartCard({ title, children, wide, height = 220 }: { title: string; chi
   );
 }
 
+// Trechos contíguos de segundos presos, como [início, fim).
+function stalls(windows: Window[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const w of windows) {
+    if (!w.stalled) continue;
+    const last = out[out.length - 1];
+    if (last && last[1] === w.t) last[1] = w.t + 1;
+    else out.push([w.t, w.t + 1]);
+  }
+  return out;
+}
+
 function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; bands: Band[]; chaosOnly: boolean; duration: number }) {
   if (windows.length === 0) return <p className="muted">Aguardando as primeiras métricas…</p>;
   const data = windows.map((w) => ({
     ...w,
-    errPct: Math.round(w.errorRate * 10000) / 100,
+    errPct: w.errorRate === null ? null : Math.round(w.errorRate * 10000) / 100,
     probeMs: w.probe?.ok ? w.probe.ms : null,
     probeOk: w.probe?.ok ? 1 : 0,
     probeFail: w.probe && !w.probe.ok ? 1 : 0,
@@ -319,6 +443,19 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
         strokeOpacity={0.5}
         strokeDasharray={b.ev ? undefined : '4 3'}
         label={labeled ? { value: faultMeta[b.fault.type].short, position: 'insideTopLeft', fill: 'var(--text-secondary)', fontSize: 12 } : undefined}
+      />
+    ));
+  // Trechos sem nenhuma resposta (alvo fora do ar): faixa vermelha, já que ali não há latência para desenhar.
+  const stalledAreas = (labeled = false) =>
+    stalls(windows).map(([a, b]) => (
+      <ReferenceArea
+        key={`stall-${a}`}
+        x1={a}
+        x2={b}
+        ifOverflow="extendDomain"
+        fill="var(--status-critical)"
+        fillOpacity={0.12}
+        label={labeled ? { value: 'sem resposta', position: 'insideBottom', fill: 'var(--status-critical)', fontSize: 12 } : undefined}
       />
     ));
   const line = (key: string, name: string, color: string, unit = '') => (
@@ -399,6 +536,7 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
           {grid}
           {x}
           {areas(true)}
+          {stalledAreas(true)}
           <YAxis width={48} {...axis} />
           <Tooltip {...tooltipStyle} />
           <Legend />
@@ -447,6 +585,7 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
           {grid}
           {x}
           {areas()}
+          {stalledAreas()}
           <YAxis width={48} domain={[0, 'auto']} {...axis} />
           <Tooltip {...tooltipStyle} />
           {line('errPct', 'Erro', 'var(--status-critical)', '%')}

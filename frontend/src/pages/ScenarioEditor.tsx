@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Container, Endpoint, Fault, FaultType, Mode, ProfileType, Scenario, profileStages } from '../api';
+import { api, Container, defaultSLO, Endpoint, Fault, FaultType, Mode, ProfileType, Scenario, SLO, profileStages } from '../api';
 import Timeline, { freeSlot } from '../components/Timeline';
 import { faultMeta, faultTypes, newFaultId } from '../faults';
 import { go, query } from '../router';
@@ -41,6 +41,7 @@ const empty: Draft = {
   profile: { type: 'plateau', vus: 20, durationSeconds: 60 },
   faults: [],
   probePath: '/health',
+  slo: defaultSLO,
 };
 
 // Resumo de uma linha do cenário, para as listas.
@@ -96,7 +97,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
     if (id) {
       api
         .scenario(id)
-        .then((sc) => setDraft({ ...sc, mode: sc.mode || 'load', faults: sc.faults ?? [], probePath: sc.probePath ?? '/health', endpoints: sc.endpoints ?? empty.endpoints }))
+        .then((sc) => setDraft({ ...sc, mode: sc.mode || 'load', faults: sc.faults ?? [], probePath: sc.probePath ?? '/health', slo: sc.slo ?? defaultSLO, endpoints: sc.endpoints ?? empty.endpoints }))
         .catch((e: Error) => setError(e.message));
     }
   }, [id]);
@@ -439,6 +440,8 @@ export default function ScenarioEditor({ id }: { id?: string }) {
         </fieldset>
       )}
 
+      <SLOFields draft={draft} set={set} />
+
       {error && <p className="error">Erro: {error}</p>}
       <div className="actions">
         <button className="primary" disabled={saving} onClick={() => save(true)}>
@@ -450,5 +453,54 @@ export default function ScenarioEditor({ id }: { id?: string }) {
         <a href="#/cenarios">Cancelar</a>
       </div>
     </section>
+  );
+}
+
+// SLOs do veredito: cada segundo da execução fica dentro ou fora deles, e a nota sai daí.
+function SLOFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => void }) {
+  const slo = draft.slo ?? defaultSLO;
+  const setSLO = (patch: Partial<SLO>) => set({ slo: { ...slo, ...patch } });
+  const chaosOnly = draft.mode === 'chaos';
+  return (
+    <fieldset>
+      <legend>Critérios de aprovação (SLOs)</legend>
+      <p className="muted small">
+        Cada segundo da execução fica dentro ou fora destes limites. A nota de resiliência (0 a 100) sai do tempo dentro deles durante cada falha e de quanto a
+        aplicação demora para voltar depois. Os valores já vêm com uma sugestão.
+      </p>
+      <div className="row">
+        <label>
+          {chaosOnly ? 'Latência da sonda até (ms)' : 'p95 até (ms)'}
+          <input type="number" min={1} value={slo.p95Ms} onChange={(e) => setSLO({ p95Ms: Number(e.target.value) })} />
+        </label>
+        {!chaosOnly && (
+          <label>
+            Taxa de erro até (%)
+            <input type="number" min={0} max={100} step={0.1} value={slo.errorRatePct} onChange={(e) => setSLO({ errorRatePct: Number(e.target.value) })} />
+          </label>
+        )}
+        {chaosOnly && (
+          <label>
+            Disponibilidade mínima (%)
+            <input type="number" min={0} max={100} step={0.1} value={slo.availabilityPct} onChange={(e) => setSLO({ availabilityPct: Number(e.target.value) })} />
+          </label>
+        )}
+        {!chaosOnly && (
+          <label title="Uma requisição que passa deste tempo é cancelada e conta como erro">
+            Timeout por requisição (s)
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={draft.requestTimeoutSeconds ?? 10}
+              onChange={(e) => set({ requestTimeoutSeconds: Number(e.target.value) })}
+            />
+          </label>
+        )}
+      </div>
+      <button type="button" className="link" onClick={() => set({ slo: defaultSLO, requestTimeoutSeconds: undefined })}>
+        Voltar aos valores sugeridos
+      </button>
+    </fieldset>
   );
 }
