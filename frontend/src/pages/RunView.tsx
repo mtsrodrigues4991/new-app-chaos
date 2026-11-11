@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, targetName, targetPlatform, Verdict, Window } from '../api';
+import { api, grafanaExploreUrl, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, targetName, targetPlatform, Verdict, Window } from '../api';
 import AIPanel from '../components/AIPanel';
 import { faultMeta, faultSummary } from '../faults';
 import { modeLabel, profileLabel } from './ScenarioEditor';
@@ -93,6 +93,14 @@ export default function RunView({ id }: { id: string }) {
   const [aborting, setAborting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab | null>(null);
+  const [grafana, setGrafana] = useState<string | undefined>();
+
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => setGrafana(h.grafanaUrl))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -161,6 +169,16 @@ export default function RunView({ id }: { id: string }) {
   ];
   // Enquanto roda, o que interessa são os gráficos ao vivo; depois, o resumo.
   const current: Tab = tab && tabs.some((t) => t.id === tab) ? tab : finished ? 'resumo' : 'graficos';
+  const tgt = run.scenario.target;
+  const grafanaLink =
+    grafana && targetPlatform(tgt) === 'kubernetes' && run.startedAt
+      ? grafanaExploreUrl(
+          grafana,
+          `${tgt.namespace}/${tgt.deployment}`,
+          new Date(run.startedAt).getTime() - 30_000,
+          (run.endedAt ? new Date(run.endedAt).getTime() : Date.now()) + 60_000,
+        )
+      : undefined;
   const facts = [
     modeLabel[mode],
     mode === 'chaos' ? `sonda ${run.scenario.probePath}` : `${profileLabel[p.type]}, ${p.vus} VUs`,
@@ -181,6 +199,11 @@ export default function RunView({ id }: { id: string }) {
           <span className="mono">#{run.id.slice(0, 8)}</span>
         </nav>
         <div className="toolbar">
+          {grafanaLink && (
+            <a className="button" href={grafanaLink} target="_blank" rel="noreferrer" title="Métricas do serviço alvo no Grafana, no intervalo desta execução">
+              <Icon name="chart" size={16} /> Abrir no Grafana
+            </a>
+          )}
           <a className="button" href={`#/cenarios/${run.scenarioId}`}>
             <Icon name="edit" size={16} /> Editar cenário
           </a>

@@ -80,6 +80,16 @@ func main() {
 	}
 
 	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, AI: reg, Code: code}
+	// Grafana pelo próprio app (/grafana), sem port-forward: só com a observabilidade ligada.
+	if g := os.Getenv("OBS_GRAFANA_PROXY"); g != "" {
+		h, err := api.GrafanaProxy(g)
+		if err != nil {
+			log.Printf("aviso: %v; botão do Grafana desligado", err)
+		} else {
+			srv.Grafana = h
+			log.Printf("Grafana repassado em /grafana para %s", g)
+		}
+	}
 	log.Printf("backend ouvindo em %s (banco: %s)", addr, dbPath)
 	log.Fatal(http.ListenAndServe(addr, srv.Router()))
 }

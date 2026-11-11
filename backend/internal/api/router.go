@@ -32,6 +32,8 @@ type Server struct {
 	Runner *runner.Manager
 	AI     *ai.Registry
 	Code   *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
+	// Grafana repassa /grafana/ para o Grafana do cluster (nil = sem proxy).
+	Grafana http.Handler
 }
 
 func (s *Server) Router() http.Handler {
@@ -43,8 +45,15 @@ func (s *Server) Router() http.Handler {
 		if s.Kube != nil {
 			h["namespace"] = s.Kube.Namespace()
 		}
+		if s.Runner != nil && s.Runner.Obs != nil && s.Runner.Obs.Grafana != "" {
+			h["grafanaUrl"] = s.Runner.Obs.Grafana
+		}
 		writeJSON(w, http.StatusOK, h)
 	})
+	if s.Grafana != nil {
+		r.Handle("/grafana", s.Grafana)
+		r.Handle("/grafana/*", s.Grafana)
+	}
 	r.Get("/api/containers", s.listContainers)
 	r.Get("/api/deployments", s.listDeployments)
 

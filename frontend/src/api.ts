@@ -39,7 +39,7 @@ export function targetName(t: Target): string {
   return targetPlatform(t) === 'kubernetes' ? `${t.namespace}/${t.deployment}` : t.container ?? '';
 }
 
-export type Health = { status: string; docker: boolean; kubernetes: boolean; observability?: boolean; namespace?: string };
+export type Health = { status: string; docker: boolean; kubernetes: boolean; observability?: boolean; namespace?: string; grafanaUrl?: string };
 
 export type Endpoint = {
   method: string;
@@ -265,6 +265,20 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   }
   if (res.status === 204 || res.status === 202) return undefined as T;
   return res.json();
+}
+
+// Endereço do Grafana para uma execução: Explore com o p95 HTTP do serviço alvo, no intervalo
+// da execução (com folga antes e depois, porque as métricas chegam a cada 5 s).
+export function grafanaExploreUrl(base: string, job: string, from: number, to: number): string {
+  const expr = `histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="${job}"}[30s])))`;
+  const panes = {
+    a: {
+      datasource: 'prometheus',
+      queries: [{ refId: 'A', expr, datasource: { type: 'prometheus', uid: 'prometheus' } }],
+      range: { from: String(from), to: String(to) },
+    },
+  };
+  return `${base.replace(/\/$/, '')}/explore?schemaVersion=1&orgId=1&panes=${encodeURIComponent(JSON.stringify(panes))}`;
 }
 
 export const api = {

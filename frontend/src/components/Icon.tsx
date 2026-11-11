@@ -16,6 +16,8 @@ const paths: Record<string, string> = {
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
   arrowDown: 'M12 5v14M6 13l6 6 6-6',
   chevron: 'M9 6l6 6-6 6',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
 };
 
 export type IconName = keyof typeof paths;

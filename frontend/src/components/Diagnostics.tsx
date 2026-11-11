@@ -189,13 +189,7 @@ export function AppView({ app: raw, spans }: { app: AppTelemetry; spans: FaultSp
     <section className="diagnostics no-print">
       <p className="muted small">
         Da stack de observabilidade (Prometheus, Tempo e Pyroscope), do alvo e das dependências usadas nas falhas. A IA recebe tudo isso.
-        {app.grafanaUrl && (
-          <>
-            {' '}
-            Para explorar mais, abra o <a href={app.grafanaUrl} target="_blank" rel="noreferrer">Grafana</a> (com{' '}
-            <code>kubectl -n observability port-forward svc/lgtm 3001:3000</code> rodando).
-          </>
-        )}
+        {app.grafanaUrl && ' Para explorar mais, use o botão Abrir no Grafana, no topo da página.'}
       </p>
       {app.notes?.map((n) => (
         <p key={n} className="muted small">
