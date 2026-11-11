@@ -17,7 +17,7 @@ func TestScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"http://demo-api:8080"`, `"duration":"30s","target":50`, `"path":"/items"`, `"method":"GET"`, `"weight":1`} {
+	for _, want := range []string{`"http://demo-api:8080"`, `"duration":"30s","target":50`, `"path":"/items"`, `"method":"GET"`, `"weight":1`, `new Counter('status_5xx')`} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("script não contém %s:\n%s", want, js)
 		}

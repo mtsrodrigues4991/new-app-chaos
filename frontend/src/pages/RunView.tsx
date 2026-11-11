@@ -57,6 +57,7 @@ export default function RunView({ id }: { id: string }) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aborting, setAborting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -95,7 +96,16 @@ export default function RunView({ id }: { id: string }) {
 
   const abort = async () => {
     setAborting(true);
-    await api.abortRun(id).catch((e: Error) => setError(e.message));
+    setActionError(null);
+    try {
+      await api.abortRun(id);
+    } catch (e) {
+      // Se a execução já terminou nesse meio tempo, basta recarregar o estado.
+      const fresh = await api.run(id).catch(() => null);
+      if (fresh) setRun(fresh);
+      if (!fresh || live(fresh.status)) setActionError((e as Error).message);
+      setAborting(false);
+    }
   };
 
   const p = run.scenario.profile;
@@ -117,6 +127,7 @@ export default function RunView({ id }: { id: string }) {
       </p>
       {run.status === 'pending' && <p className="muted">Preparando o k6 (na primeira vez ele baixa a imagem, pode levar um minuto)…</p>}
       {run.error && <p className="error">{run.error}</p>}
+      {actionError && <p className="error">Não foi possível abortar: {actionError}</p>}
       <Summary windows={run.windows} />
       <Charts windows={run.windows} />
     </section>

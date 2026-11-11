@@ -5,7 +5,6 @@
 package dockerx
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -227,20 +226,24 @@ type RunSpec struct {
 	Entrypoint []string
 	Cmd        []string
 	Env        []string
-	Network    string // rede a que o container se conecta
+	Network    string // rede principal do container
 	Role       string // valor do label LabelRole
 	RunID      string
 }
 
-// CreateAndStart cria e inicia um container, devolvendo o id.
-func (c *Client) CreateAndStart(ctx context.Context, spec RunSpec) (string, error) {
+// Create cria (sem iniciar) um container auxiliar e devolve o id.
+func (c *Client) Create(ctx context.Context, spec RunSpec) (string, error) {
 	body := map[string]any{
 		"Image":      spec.Image,
 		"Entrypoint": spec.Entrypoint,
 		"Cmd":        spec.Cmd,
 		"Env":        spec.Env,
 		"Labels":     map[string]string{LabelRole: spec.Role, "new-app-chaos.run": spec.RunID},
-		"HostConfig": map[string]any{"NetworkMode": spec.Network},
+		"HostConfig": map[string]any{
+			"NetworkMode": spec.Network,
+			// Log pequeno e rotativo: o k6 roda em modo silencioso, mas um erro não pode encher o disco.
+			"LogConfig": map[string]any{"Type": "json-file", "Config": map[string]string{"max-size": "1m", "max-file": "1"}},
+		},
 	}
 	var created struct {
 		ID string `json:"Id"`
@@ -252,40 +255,65 @@ func (c *Client) CreateAndStart(ctx context.Context, spec RunSpec) (string, erro
 	if err := c.do(ctx, http.MethodPost, path, body, &created); err != nil {
 		return "", err
 	}
-	if err := c.do(ctx, http.MethodPost, "/containers/"+created.ID+"/start", nil, nil); err != nil {
-		_ = c.Remove(context.Background(), created.ID)
-		return "", err
-	}
 	return created.ID, nil
 }
 
-// FollowStdout lê o stdout do container linha a linha até ele terminar ou ctx ser cancelado.
-// stderr é devolvido à parte (últimas linhas) para mensagens de erro.
-func (c *Client) FollowStdout(ctx context.Context, id string, onLine func([]byte)) (stderrTail string, err error) {
-	resp, err := c.request(ctx, http.MethodGet, "/containers/"+id+"/logs?follow=1&stdout=1&stderr=1", nil)
+// Start inicia um container já criado.
+func (c *Client) Start(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/containers/"+id+"/start", nil, nil)
+}
+
+// ConnectNetwork liga o container a mais uma rede.
+func (c *Client) ConnectNetwork(ctx context.Context, network, id string) error {
+	return c.do(ctx, http.MethodPost, "/networks/"+url.PathEscape(network)+"/connect", map[string]string{"Container": id}, nil)
+}
+
+// IPs devolve o IP do container em cada rede.
+func (c *Client) IPs(ctx context.Context, id string) (map[string]string, error) {
+	var raw struct {
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress string `json:"IPAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, &raw); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for n, v := range raw.NetworkSettings.Networks {
+		if v.IPAddress != "" {
+			out[n] = v.IPAddress
+		}
+	}
+	return out, nil
+}
+
+// SelfNetworks devolve as redes do container onde o backend roda, ou nil se ele roda fora do Docker.
+func (c *Client) SelfNetworks(ctx context.Context) []string {
+	host, err := os.Hostname()
+	if err != nil {
+		return nil
+	}
+	_, nets, _, err := c.Inspect(ctx, host)
+	if err != nil {
+		return nil
+	}
+	return nets
+}
+
+// LogsTail devolve as últimas linhas de stdout e stderr do container (para mensagens de erro).
+func (c *Client) LogsTail(ctx context.Context, id string, lines int) (string, error) {
+	resp, err := c.request(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/logs?stdout=1&stderr=1&tail=%d", id, lines), nil)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	outR, outW := io.Pipe()
-	var errBuf tailBuffer
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		sc := bufio.NewScanner(outR)
-		sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-		for sc.Scan() {
-			onLine(sc.Bytes())
-		}
-		_, _ = io.Copy(io.Discard, outR)
-	}()
-	err = demux(resp.Body, outW, &errBuf)
-	outW.Close()
-	<-done
-	if errors.Is(err, context.Canceled) {
-		err = nil
+	var out tailBuffer
+	if err := demux(resp.Body, &out, &out); err != nil {
+		return "", err
 	}
-	return errBuf.String(), err
+	return out.String(), nil
 }
 
 // demux separa o stream multiplexado do Docker (cabeçalho de 8 bytes por bloco) em stdout e stderr.
@@ -406,7 +434,11 @@ func (c *Client) Kill(ctx context.Context, id, signal string) error {
 	if signal == "" {
 		signal = "SIGKILL"
 	}
-	return c.do(ctx, http.MethodPost, "/containers/"+id+"/kill?signal="+url.QueryEscape(signal), nil, nil)
+	err := c.do(ctx, http.MethodPost, "/containers/"+id+"/kill?signal="+url.QueryEscape(signal), nil, nil)
+	if err != nil && (errors.Is(err, ErrNotFound) || strings.Contains(err.Error(), "is not running")) {
+		return nil // já parou: o objetivo de matar foi atingido
+	}
+	return err
 }
 
 // Restart reinicia o container alvo (falha kill/restart, marco 3).

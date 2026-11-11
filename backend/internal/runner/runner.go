@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ type active struct {
 	mu      sync.Mutex
 	k6ID    string
 	aborted bool
+	cancel  context.CancelFunc // interrompe a leitura das métricas (usado no abort)
 	subs    map[chan Event]struct{}
 }
 
@@ -157,7 +159,8 @@ func (m *Manager) Subscribe(runID string) (ch chan Event, unsubscribe func(), ok
 	}, true
 }
 
-// Abort interrompe a execução: mata o k6, e o fluxo normal de término registra "aborted".
+// Abort interrompe a execução: para a leitura das métricas e mata o k6.
+// O fluxo normal de término registra "aborted".
 func (m *Manager) Abort(ctx context.Context, runID string) error {
 	m.mu.Lock()
 	a, ok := m.runs[runID]
@@ -167,12 +170,15 @@ func (m *Manager) Abort(ctx context.Context, runID string) error {
 	}
 	a.mu.Lock()
 	a.aborted = true
-	id := a.k6ID
+	id, cancel := a.k6ID, a.cancel
 	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if id == "" {
 		return nil // ainda baixando a imagem; o execute vê a flag antes de subir o k6
 	}
-	return m.Docker.Kill(ctx, id, "SIGKILL")
+	return m.Docker.Kill(ctx, id, "SIGKILL") // já parado não é erro
 }
 
 func (m *Manager) finish(runID string) {
@@ -226,19 +232,25 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 	}
 	a.mu.Unlock()
 
-	k6ID, err := m.Docker.CreateAndStart(ctx, dockerx.RunSpec{
+	k6ID, err := m.Docker.Create(ctx, dockerx.RunSpec{
 		Name:       "new-app-chaos-k6-" + run.ID,
 		Image:      m.K6Image,
 		Entrypoint: []string{"sh", "-c"},
-		Cmd: []string{`printf '%s' "$K6_SCRIPT" > /tmp/script.js && exec k6 run --quiet --no-summary --no-usage-report ` +
-			`--out json=/dev/stdout /tmp/script.js`},
-		Env:     []string{"K6_SCRIPT=" + script},
+		Cmd:        []string{`printf '%s' "$K6_SCRIPT" > /tmp/script.js && exec k6 run --quiet --no-summary --no-usage-report /tmp/script.js`},
+		Env: []string{
+			"K6_SCRIPT=" + script,
+			// Dashboard embutido do k6: publica as métricas já agregadas por segundo em :5665/events.
+			"K6_WEB_DASHBOARD=true",
+			"K6_WEB_DASHBOARD_HOST=0.0.0.0",
+			fmt.Sprintf("K6_WEB_DASHBOARD_PORT=%d", dashboardPort),
+			"K6_WEB_DASHBOARD_PERIOD=1s",
+		},
 		Network: network,
 		Role:    RoleK6,
 		RunID:   run.ID,
 	})
 	if err != nil {
-		fail(fmt.Errorf("subindo o container do k6: %w", err))
+		fail(fmt.Errorf("criando o container do k6: %w", err))
 		return
 	}
 	defer func() {
@@ -246,16 +258,54 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 			log.Printf("run %s: removendo k6: %v", run.ID, err)
 		}
 	}()
+
+	// O backend precisa alcançar o dashboard do k6. Se ele roda num container, liga o k6
+	// também à rede do backend; se roda direto na máquina, usa o IP na rede do alvo.
+	reachNet := network
+	if self := m.Docker.SelfNetworks(ctx); len(self) > 0 {
+		reachNet = ""
+		for _, n := range self {
+			if n == network {
+				reachNet = n
+			}
+		}
+		if reachNet == "" {
+			reachNet = pickNetwork(self)
+			if err := m.Docker.ConnectNetwork(ctx, reachNet, k6ID); err != nil {
+				fail(fmt.Errorf("ligando o k6 à rede do backend (%s): %w", reachNet, err))
+				return
+			}
+		}
+	}
+	if err := m.Docker.Start(ctx, k6ID); err != nil {
+		fail(fmt.Errorf("iniciando o k6: %w", err))
+		return
+	}
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 	a.mu.Lock()
-	a.k6ID = k6ID
+	a.k6ID, a.cancel = k6ID, cancelRun
 	abortedEarly := a.aborted
 	a.mu.Unlock()
 	if abortedEarly {
+		cancelRun()
 		_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
 	}
 
 	started := time.Now().UTC()
 	m.setStatus(run.ID, a, store.RunRunning, "", &started, nil)
+
+	// Espera o k6 sair em paralelo: é o sinal definitivo de fim.
+	type exit struct {
+		code int
+		err  error
+	}
+	exited := make(chan exit, 1)
+	go func() {
+		code, err := m.Docker.Wait(ctx, k6ID)
+		exited <- exit{code, err}
+	}()
 
 	var aggMu sync.Mutex
 	agg := load.NewAggregator(started)
@@ -269,7 +319,7 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 		a.broadcast(Event{Type: "windows", Windows: ws})
 	}
 
-	bgCtx, stopBG := context.WithCancel(ctx)
+	bgCtx, stopBG := context.WithCancel(runCtx)
 	var bg sync.WaitGroup
 	bg.Add(2)
 	go func() { // CPU e memória do alvo
@@ -283,7 +333,7 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 			log.Printf("run %s: stats do alvo: %v", run.ID, err)
 		}
 	}()
-	go func() { // fecha uma janela por segundo, com 1 s de folga para pontos atrasados
+	go func() { // fecha janelas com 2 s de folga (o resumo do k6 chega ~1 s depois do período)
 		defer bg.Done()
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
@@ -293,19 +343,52 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 				return
 			case now := <-t.C:
 				aggMu.Lock()
-				ws := agg.Flush(agg.Elapsed(now) - 1)
+				ws := agg.Flush(agg.Elapsed(now) - 2)
 				aggMu.Unlock()
 				emit(ws)
 			}
 		}
 	}()
 
-	stderrTail, logErr := m.Docker.FollowStdout(ctx, k6ID, func(line []byte) {
-		aggMu.Lock()
-		agg.AddK6Line(line)
-		aggMu.Unlock()
-	})
-	code, waitErr := m.Docker.Wait(ctx, k6ID)
+	// Lê o dashboard até o k6 anunciar o fim. Se o k6 sair sem anunciar, corta após uma folga.
+	streamCtx, stopStream := context.WithCancel(runCtx)
+	var exitRes *exit
+	streamDone := make(chan error, 1)
+	go func() { streamDone <- m.streamDashboard(streamCtx, k6ID, reachNet, agg, &aggMu) }()
+	// Vigia: se nem o fim do teste nem a saída do k6 chegarem bem depois do previsto, corta.
+	watchdog := time.NewTimer(time.Duration(run.Scenario.Profile.DurationSeconds)*time.Second + 2*time.Minute)
+	defer watchdog.Stop()
+	var streamErr error
+	select {
+	case streamErr = <-streamDone:
+	case <-watchdog.C:
+		log.Printf("run %s: passou muito do tempo previsto; encerrando", run.ID)
+		stopStream()
+		streamErr = <-streamDone
+		_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
+	case e := <-exited:
+		exitRes = &e
+		select {
+		case streamErr = <-streamDone:
+		case <-time.After(3 * time.Second):
+			stopStream()
+			streamErr = <-streamDone
+		}
+	}
+	stopStream()
+
+	// Fim do teste: o k6 sai logo depois que o leitor do dashboard desconecta.
+	if exitRes == nil {
+		select {
+		case e := <-exited:
+			exitRes = &e
+		case <-time.After(15 * time.Second):
+			log.Printf("run %s: k6 não saiu sozinho; matando", run.ID)
+			_ = m.Docker.Kill(ctx, k6ID, "SIGKILL")
+			e := <-exited
+			exitRes = &e
+		}
+	}
 	stopBG()
 	bg.Wait()
 	aggMu.Lock()
@@ -320,14 +403,52 @@ func (m *Manager) execute(run store.Run, network string, a *active) {
 	switch {
 	case aborted:
 		m.setStatus(run.ID, a, store.RunAborted, "", nil, &ended)
-	case logErr != nil:
-		m.setStatus(run.ID, a, store.RunFailed, "lendo a saída do k6: "+logErr.Error(), nil, &ended)
-	case waitErr != nil:
-		m.setStatus(run.ID, a, store.RunFailed, "esperando o k6: "+waitErr.Error(), nil, &ended)
-	case code != 0:
-		m.setStatus(run.ID, a, store.RunFailed, fmt.Sprintf("k6 saiu com código %d: %s", code, lastLines(stderrTail, 5)), nil, &ended)
+	case exitRes.err != nil:
+		m.setStatus(run.ID, a, store.RunFailed, "esperando o k6: "+exitRes.err.Error(), nil, &ended)
+	case exitRes.code != 0:
+		tail, _ := m.Docker.LogsTail(ctx, k6ID, 20)
+		m.setStatus(run.ID, a, store.RunFailed, fmt.Sprintf("k6 saiu com código %d: %s", exitRes.code, lastLines(tail, 5)), nil, &ended)
+	case streamErr != nil:
+		m.setStatus(run.ID, a, store.RunFailed, "lendo as métricas do k6: "+streamErr.Error(), nil, &ended)
 	default:
 		m.setStatus(run.ID, a, store.RunCompleted, "", nil, &ended)
+	}
+}
+
+const dashboardPort = 5665
+
+// streamDashboard espera o dashboard do k6 subir e lê os resumos até o fim do teste.
+func (m *Manager) streamDashboard(ctx context.Context, k6ID, network string, agg *load.Aggregator, mu *sync.Mutex) error {
+	var url string
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		ips, err := m.Docker.IPs(ctx, k6ID)
+		if err == nil && ips[network] != "" {
+			url = fmt.Sprintf("http://%s:%d/events", ips[network], dashboardPort)
+			err = load.StreamDashboard(ctx, url, func(s *load.Snapshot) {
+				mu.Lock()
+				agg.AddSnapshot(s)
+				mu.Unlock()
+			})
+			if err == nil || ctx.Err() != nil {
+				return nil
+			}
+			var opErr *net.OpError
+			if !errors.As(err, &opErr) { // erro de formato, não de conexão: não adianta tentar de novo
+				return err
+			}
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("dashboard do k6 não respondeu em %s: %v", url, err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(300 * time.Millisecond):
+		}
 	}
 }
 

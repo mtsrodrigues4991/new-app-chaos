@@ -1,48 +1,84 @@
 package load
 
 import (
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
 
-func point(metric string, ts time.Time, value float64, status string) []byte {
-	return []byte(fmt.Sprintf(`{"type":"Point","metric":%q,"data":{"time":%q,"value":%v,"tags":{"status":%q}}}`,
-		metric, ts.Format(time.RFC3339Nano), value, status))
+// Trecho real do /events do dashboard do k6 0.54 (abreviado nas métricas que não usamos).
+const sampleSSE = `event: param
+data: {"period":1000,"aggregates":{"counter":["count","rate"],"gauge":["value"],"rate":["rate"],"trend":["avg","max","med","min","p(90)","p(95)","p(99)"]}}
+
+event: start
+data: [[1000000]]
+
+event: metric
+data: {"http_req_duration":{"type":"trend"},"http_req_failed":{"type":"rate"},"http_reqs":{"type":"counter"},"status_2xx":{"type":"counter"},"status_4xx":{"type":"counter"},"time":{"type":"gauge"}}
+
+event: snapshot
+data: [[0.24,6.2,0.22,0.05,0.34,0.4,0.68],[0.19665],[4602,4602],[3696,3696],[904,904],[1001000]]
+
+event: metric
+data: {"vus":{"type":"gauge"},"vus_max":{"type":"gauge"}}
+
+event: snapshot
+data: [[0.25,9.4,0.2,0.04,0.43,0.56,1.15],[0.2],[10029,10029],[7947,7947],[2084,2084],[1002000],[4],[20]]
+
+event: stop
+data: [[1002500]]
+
+event: snapshot
+data: [[1],[1],[1,1],[1,1],[1,1],[1003000],[1],[1]]
+
+`
+
+func TestDashboardToWindows(t *testing.T) {
+	d := NewDashboardReader()
+	var snaps []*Snapshot
+	stopped := false
+	err := ReadSSE(strings.NewReader(sampleSSE), func(name string, data []byte) bool {
+		s, stop, err := d.Event(name, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s != nil {
+			snaps = append(snaps, s)
+		}
+		stopped = stop
+		return !stop
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stopped || len(snaps) != 2 {
+		t.Fatalf("esperava 2 snapshots e parar no stop; veio %d, stop=%v", len(snaps), stopped)
+	}
+
+	start := time.Now()
+	a := NewAggregator(start)
+	for _, s := range snaps {
+		a.AddSnapshot(s)
+	}
+	a.AddStats(start.Add(1500*time.Millisecond), 55.55, 128)
+	a.AddStats(start.Add(5*time.Second), 10, 10) // sem resumo do k6 nesse segundo: fica de fora
+	ws := a.Flush(MaxSecond)
+	if len(ws) != 2 {
+		t.Fatalf("esperava 2 janelas, veio %+v", ws)
+	}
+	w0, w1 := ws[0], ws[1]
+	if w0.T != 0 || w0.RPS != 4602 || w0.P50 != 0.2 || w0.P95 != 0.4 || w0.P99 != 0.7 || w0.S2xx != 3696 || w0.S4xx != 904 || w0.VUs != 0 {
+		t.Fatalf("janela 0 errada: %+v", w0)
+	}
+	if w1.T != 1 || w1.VUs != 4 || w1.CPU != 55.6 || w1.MemMB != 128 || w1.ErrorRate != 0.2 {
+		t.Fatalf("janela 1 errada: %+v", w1)
+	}
 }
 
-func TestAggregator(t *testing.T) {
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	a := NewAggregator(start)
-	t0 := start.Add(200 * time.Millisecond)
-	for i := 1; i <= 100; i++ {
-		a.AddK6Line(point("http_req_duration", t0, float64(i), "200"))
-		status := "200"
-		failed := 0.0
-		if i > 90 {
-			status, failed = "500", 1
-		}
-		a.AddK6Line(point("http_reqs", t0, 1, status))
-		a.AddK6Line(point("http_req_failed", t0, failed, status))
-	}
-	a.AddK6Line(point("vus", t0, 10, ""))
-	a.AddK6Line([]byte("lixo que não é json"))
-	a.AddStats(start.Add(1500*time.Millisecond), 55.55, 128)
-
-	ws := a.Flush(1)
-	if len(ws) != 1 {
-		t.Fatalf("esperava 1 janela, veio %d", len(ws))
-	}
-	w := ws[0]
-	if w.RPS != 100 || w.P50 != 50 || w.P95 != 95 || w.P99 != 99 {
-		t.Fatalf("percentis/RPS errados: %+v", w)
-	}
-	if w.S2xx != 90 || w.S5xx != 10 || w.ErrorRate != 0.1 || w.VUs != 10 {
-		t.Fatalf("contagens erradas: %+v", w)
-	}
-
-	rest := a.Flush(MaxSecond)
-	if len(rest) != 1 || rest[0].T != 1 || rest[0].CPU != 55.6 || rest[0].VUs != 10 {
-		t.Fatalf("segunda janela errada: %+v", rest)
+func TestSnapshotMismatchIsError(t *testing.T) {
+	d := NewDashboardReader()
+	_, _, _ = d.Event("metric", []byte(`{"http_reqs":{},"time":{}}`))
+	if _, _, err := d.Event("snapshot", []byte(`[[1,1]]`)); err == nil {
+		t.Fatal("esperava erro quando o número de métricas não bate")
 	}
 }

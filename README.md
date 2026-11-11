@@ -12,7 +12,7 @@ Marcos 1 (esqueleto) e 2 (carga) prontos:
 
 - **Alvos:** lista os containers Docker rodando (nome, imagem, portas, rede) e cria um cenário a partir de um deles.
 - **Cenários:** editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia dos VUs. Salvos em SQLite.
-- **Execução:** o backend sobe um container `grafana/k6` na mesma rede do alvo, lê as métricas em streaming e transmite ao vivo (Server-Sent Events). Dá para abortar. Uma execução por vez.
+- **Execução:** o backend sobe um container `grafana/k6` na mesma rede do alvo, lê as métricas já agregadas por segundo pelo dashboard embutido do k6 e transmite ao vivo (Server-Sent Events). Dá para abortar. Uma execução por vez.
 - **Gráficos ao vivo e histórico:** latência p50/p95/p99, RPS, VUs ativos, respostas por código HTTP, taxa de erro, CPU e memória do container alvo. Tudo agregado por segundo e salvo, então execuções antigas podem ser reabertas.
 
 Próximos: curva de carga desenhável, injeção de falhas na linha do tempo (marco 3) e análise por IA (marco 4).
