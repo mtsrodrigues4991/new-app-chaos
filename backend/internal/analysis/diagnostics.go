@@ -214,7 +214,7 @@ func DescribeApp(a *store.AppTelemetry) string {
 	}
 	for _, svc := range services {
 		ms := bySvc[svc]
-		fmt.Fprintf(&b, "#### Métricas de %s (t = segundos desde o início, a cada 5 s; pode passar do fim da execução)\n", svc)
+		fmt.Fprintf(&b, "#### Métricas de %s (t = segundos desde o início, a cada 5 s; taxas e p95 chegam ~5 a 15 s atrasados em relação à sonda; pode passar do fim da execução)\n", svc)
 		for _, m := range ms {
 			unit := ""
 			if m.Unit != "" {
@@ -271,7 +271,7 @@ func DescribeApp(a *store.AppTelemetry) string {
 		b.WriteString("\n")
 	}
 	if len(a.Profiles) > 0 {
-		b.WriteString("#### Profiling (Pyroscope, execução inteira): funções com mais tempo próprio\n")
+		b.WriteString("#### Profiling (Pyroscope, execução inteira, sem o próprio agente): funções com mais tempo próprio\n")
 		for _, p := range a.Profiles {
 			parts := make([]string, len(p.Functions))
 			for i, f := range p.Functions {

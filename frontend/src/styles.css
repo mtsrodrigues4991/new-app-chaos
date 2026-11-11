@@ -238,3 +238,11 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); border
 .log-lines { max-height: 420px; overflow: auto; }
 .log-lines .error { color: var(--status-critical); }
 .log-fault { color: var(--accent); }
+.traces { table-layout: fixed; }
+.traces th:nth-child(1) { width: 48px; }
+.traces th:nth-child(2) { width: 70px; }
+.traces th:nth-child(3) { width: 50px; }
+.traces th:nth-child(4) { width: 100px; }
+.traces th:nth-child(5) { width: 170px; }
+.traces th:nth-child(6) { width: 80px; }
+.traces td { overflow-wrap: anywhere; vertical-align: top; }
