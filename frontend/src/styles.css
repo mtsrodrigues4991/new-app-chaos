@@ -414,3 +414,14 @@ body.print-mode .tab-panel[hidden] { display: flex; }
   .code-read ul { display: block; }
 }
 .nav-links .trailing { margin-left: auto; color: var(--muted); }
+
+/* Login (modo nuvem) */
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px; }
+.login-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+.login-card button { justify-content: center; }
+.login-brand { padding: 0; margin-bottom: 4px; }
+.editor label.inline { flex-direction: row; align-items: center; gap: 8px; margin-top: 12px; }
+.editor .actions { margin-top: 16px; }
+.who { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; padding: 0 8px; }
+.who button { padding: 4px 8px; }

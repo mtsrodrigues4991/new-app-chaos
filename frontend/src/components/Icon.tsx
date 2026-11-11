@@ -18,6 +18,8 @@ const paths: Record<string, string> = {
   chevron: 'M9 6l6 6-6 6',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1M16 3.5a4 4 0 0 1 0 7M18 14a6 6 0 0 1 4 5.6V21',
+  logout: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11',
 };
 
 export type IconName = keyof typeof paths;

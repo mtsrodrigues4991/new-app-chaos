@@ -173,6 +173,9 @@ func (s *Server) analyzeRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, aiStatus(err), err)
 		return
 	}
+	if !s.aiAllowed(w) {
+		return
+	}
 	unlock, ok := lock("analysis:" + id)
 	if !ok {
 		writeErr(w, http.StatusConflict, errors.New("a análise desta execução já está em andamento"))
@@ -276,6 +279,9 @@ func (s *Server) postChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if !finished(cur.Run) {
 		writeErr(w, http.StatusConflict, errors.New("espere a execução terminar para conversar sobre ela"))
+		return
+	}
+	if !s.aiAllowed(w) {
 		return
 	}
 	p, model, err := s.aiConfig(r.Context())
