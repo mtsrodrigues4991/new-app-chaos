@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, Run } from '../api';
 import { query } from '../router';
+import { scenarioSummary } from './ScenarioEditor';
 import { StatusBadge, duration } from './RunView';
 
 export default function Runs() {
@@ -37,7 +38,7 @@ export default function Runs() {
               <th>Cenário</th>
               <th>Estado</th>
               <th>Duração</th>
-              <th>Carga</th>
+              <th>Teste</th>
             </tr>
           </thead>
           <tbody>
@@ -51,9 +52,7 @@ export default function Runs() {
                   <StatusBadge status={r.status} />
                 </td>
                 <td>{duration(r)}</td>
-                <td>
-                  {r.scenario.profile.vus} VUs, {r.scenario.profile.durationSeconds} s
-                </td>
+                <td>{scenarioSummary(r.scenario)}</td>
               </tr>
             ))}
           </tbody>

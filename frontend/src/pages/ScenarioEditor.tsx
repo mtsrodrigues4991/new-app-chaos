@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Container, Endpoint, ProfileType, Scenario, profileStages } from '../api';
+import { api, Container, Endpoint, Fault, FaultType, Mode, ProfileType, Scenario, profileStages } from '../api';
+import Timeline, { freeSlot } from '../components/Timeline';
+import { faultMeta, faultTypes, newFaultId } from '../faults';
 import { go, query } from '../router';
 
 export const profileLabel: Record<ProfileType, string> = {
@@ -17,6 +19,18 @@ const profileHelp: Record<ProfileType, string> = {
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
+export const modeLabel: Record<Mode, string> = {
+  load: 'Só carga',
+  chaos: 'Só caos',
+  both: 'Carga + caos',
+};
+
+const modeHelp: Record<Mode, string> = {
+  load: 'Teste de carga com k6, sem falhas.',
+  chaos: 'Injeta as falhas sem carga. Uma sonda chama um endpoint a cada 1 s para medir o impacto.',
+  both: 'Carga do k6 com as falhas posicionadas sobre a curva de usuários.',
+};
+
 type Draft = Omit<Scenario, 'id'> & { id?: string };
 
 const empty: Draft = {
@@ -25,7 +39,32 @@ const empty: Draft = {
   mode: 'load',
   endpoints: [{ method: 'GET', path: '/', weight: 1 }],
   profile: { type: 'plateau', vus: 20, durationSeconds: 60 },
+  faults: [],
+  probePath: '/health',
 };
+
+// Resumo de uma linha do cenário, para as listas.
+export function scenarioSummary(s: Scenario): string {
+  const mode = s.mode || 'load';
+  const parts: string[] = [modeLabel[mode]];
+  if (mode !== 'chaos') parts.push(`${profileLabel[s.profile.type]}, ${s.profile.vus} VUs`);
+  const n = s.faults?.length ?? 0;
+  if (mode !== 'load') parts.push(`${n} falha${n === 1 ? '' : 's'}`);
+  parts.push(`${s.profile.durationSeconds} s`);
+  return parts.join(' · ');
+}
+
+// Problemas que o backend também recusaria, mostrados antes de salvar.
+function faultIssues(faults: Fault[], duration: number): string[] {
+  const out: string[] = [];
+  const sorted = [...faults].sort((a, b) => a.startSeconds - b.startSeconds);
+  sorted.forEach((f, i) => {
+    const name = `${faultMeta[f.type].label} em ${f.startSeconds}s`;
+    if (f.startSeconds + f.durationSeconds > duration) out.push(`${name} termina depois do fim do teste (${duration}s).`);
+    if (i > 0 && f.startSeconds < sorted[i - 1].startSeconds + sorted[i - 1].durationSeconds) out.push(`${name} se sobrepõe à falha anterior.`);
+  });
+  return out;
+}
 
 // URL que o k6 usa para chegar ao alvo pela rede do Docker: nome do serviço (ou container) + primeira porta.
 function suggestedUrl(c: Container): string {
@@ -39,6 +78,8 @@ export default function ScenarioEditor({ id }: { id?: string }) {
   const [containers, setContainers] = useState<Container[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -55,7 +96,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
     if (id) {
       api
         .scenario(id)
-        .then(setDraft)
+        .then((sc) => setDraft({ ...sc, mode: sc.mode || 'load', faults: sc.faults ?? [], probePath: sc.probePath ?? '/health', endpoints: sc.endpoints ?? empty.endpoints }))
         .catch((e: Error) => setError(e.message));
     }
   }, [id]);
@@ -78,6 +119,26 @@ export default function ScenarioEditor({ id }: { id?: string }) {
     }
     return pts;
   }, [draft.profile]);
+
+  const faults = draft.faults ?? [];
+  const setFaults = (fs: Fault[]) => set({ faults: fs });
+  const sel = faults.find((f) => f.id === selected) ?? null;
+  const setSel = (patch: Partial<Fault>) => setFaults(faults.map((f) => (f.id === selected ? { ...f, ...patch } : f)));
+  const duration = draft.profile.durationSeconds;
+  const issues = draft.mode === 'load' ? [] : faultIssues(faults, duration);
+
+  const addFault = (type: FaultType) => {
+    setAddError(null);
+    const want = Math.max(1, Math.min(10, Math.floor(duration / 6)));
+    const slot = freeSlot(faults, duration, want);
+    if (!slot) {
+      setAddError('Não há espaço livre na linha do tempo. Encurte ou remova uma falha, ou aumente a duração.');
+      return;
+    }
+    const f: Fault = { id: newFaultId(), type, startSeconds: slot.start, durationSeconds: slot.dur, params: {} };
+    setFaults([...faults, f]);
+    setSelected(f.id);
+  };
 
   const save = async (andRun: boolean) => {
     setSaving(true);
@@ -112,6 +173,19 @@ export default function ScenarioEditor({ id }: { id?: string }) {
       </fieldset>
 
       <fieldset>
+        <legend>O que rodar</legend>
+        <div className="profile-types">
+          {(Object.keys(modeLabel) as Mode[]).map((m) => (
+            <label key={m} className={`choice ${draft.mode === m ? 'selected' : ''}`}>
+              <input type="radio" name="mode" checked={draft.mode === m} onChange={() => set({ mode: m })} />
+              <strong>{modeLabel[m]}</strong>
+              <span className="muted">{modeHelp[m]}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend>Alvo</legend>
         <div className="row">
           <label>
@@ -137,6 +211,29 @@ export default function ScenarioEditor({ id }: { id?: string }) {
         </div>
       </fieldset>
 
+      {draft.mode === 'chaos' && (
+        <fieldset>
+          <legend>Duração e sonda</legend>
+          <div className="row">
+            <label>
+              Duração (segundos)
+              <input
+                type="number"
+                min={10}
+                max={3600}
+                value={duration}
+                onChange={(e) => set({ profile: { ...draft.profile, durationSeconds: Number(e.target.value) } })}
+              />
+            </label>
+            <label className="grow">
+              Endpoint da sonda (GET a cada 1 s)
+              <input value={draft.probePath ?? ''} onChange={(e) => set({ probePath: e.target.value })} placeholder="/health" />
+            </label>
+          </div>
+        </fieldset>
+      )}
+
+      {draft.mode !== 'chaos' && (
       <fieldset>
         <legend>Endpoints</legend>
         <table className="endpoints">
@@ -201,7 +298,9 @@ export default function ScenarioEditor({ id }: { id?: string }) {
           Adicionar endpoint
         </button>
       </fieldset>
+      )}
 
+      {draft.mode !== 'chaos' && (
       <fieldset>
         <legend>Perfil de carga</legend>
         <div className="profile-types">
@@ -240,6 +339,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             />
           </label>
         </div>
+        {draft.mode === 'load' && (
         <div className="chart small">
           <div className="chart-title">Prévia: usuários virtuais ao longo do tempo</div>
           <ResponsiveContainer width="100%" height={160}>
@@ -256,7 +356,88 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        )}
       </fieldset>
+      )}
+
+      {draft.mode !== 'load' && (
+        <fieldset className="faults">
+          <legend>Falhas na linha do tempo</legend>
+          <p className="muted small">
+            Adicione uma falha e arraste o bloco para escolher quando ela acontece; puxe as bordas para mudar a duração. Neste
+            marco, uma falha por vez. Toda falha é desfeita no fim do bloco, ao abortar ou se o backend reiniciar.
+          </p>
+          <div className="fault-add">
+            {faultTypes.map((t) => (
+              <button key={t} onClick={() => addFault(t)} style={{ ['--c' as string]: faultMeta[t].color }}>
+                <span className="swatch" /> {faultMeta[t].label}
+              </button>
+            ))}
+          </div>
+          {addError && <p className="error">{addError}</p>}
+          <Timeline
+            duration={duration}
+            faults={faults}
+            selectedId={selected}
+            onSelect={setSelected}
+            onChange={setFaults}
+            curve={draft.mode === 'both' ? preview : undefined}
+          />
+          {draft.mode === 'both' && <p className="muted small">A área clara atrás dos blocos é a curva de usuários virtuais do perfil de carga.</p>}
+          {issues.map((i) => (
+            <p key={i} className="error">
+              {i}
+            </p>
+          ))}
+          {sel ? (
+            <div className="fault-form" style={{ ['--c' as string]: faultMeta[sel.type].color }}>
+              <div className="row">
+                <label>
+                  Falha
+                  <select value={sel.type} onChange={(e) => setSel({ type: e.target.value as FaultType, params: {} })}>
+                    {faultTypes.map((t) => (
+                      <option key={t} value={t}>
+                        {faultMeta[t].label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Início (s)
+                  <input type="number" min={0} value={sel.startSeconds} onChange={(e) => setSel({ startSeconds: Math.max(0, Number(e.target.value)) })} />
+                </label>
+                <label>
+                  Duração (s)
+                  <input type="number" min={1} value={sel.durationSeconds} onChange={(e) => setSel({ durationSeconds: Math.max(1, Number(e.target.value)) })} />
+                </label>
+                {faultMeta[sel.type].params.map((p) => (
+                  <label key={p.key} title={p.key}>
+                    {p.label}
+                    {p.unit ? ` (${p.unit})` : ''}
+                    <input
+                      type={p.text ? 'text' : 'number'}
+                      min={p.min}
+                      max={p.max}
+                      value={sel.params[p.key] ?? p.def}
+                      placeholder={p.help}
+                      onChange={(e) => setSel({ params: { ...sel.params, [p.key]: e.target.value } })}
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="muted small">
+                {faultMeta[sel.type].help}
+                {faultMeta[sel.type].params.some((p) => p.help) && ` Quantidade: ${faultMeta[sel.type].params.find((p) => p.help)?.help}.`}
+              </p>
+              <button className="link danger" onClick={() => { setFaults(faults.filter((f) => f.id !== sel.id)); setSelected(null); }}>
+                Remover falha
+              </button>
+            </div>
+          ) : (
+            faults.length > 0 && <p className="muted small">Clique num bloco para editar os parâmetros.</p>
+          )}
+        </fieldset>
+      )}
 
       {error && <p className="error">Erro: {error}</p>}
       <div className="actions">

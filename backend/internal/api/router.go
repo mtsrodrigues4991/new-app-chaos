@@ -177,10 +177,16 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	faults, err := s.Store.FaultEvents(r.Context(), run.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
 		store.Run
-		Windows []load.Window `json:"windows"`
-	}{run, ws})
+		Windows     []load.Window      `json:"windows"`
+		FaultEvents []store.FaultEvent `json:"faultEvents"`
+	}{run, ws, faults})
 }
 
 func (s *Server) abortRun(w http.ResponseWriter, r *http.Request) {

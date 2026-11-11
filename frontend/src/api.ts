@@ -22,13 +22,27 @@ export type ProfileType = 'ramp' | 'plateau' | 'spike';
 
 export type Profile = { type: ProfileType; vus: number; durationSeconds: number };
 
+export type Mode = 'load' | 'chaos' | 'both';
+
+export type FaultType = 'latency' | 'packet_loss' | 'cpu_stress' | 'memory_stress' | 'kill_restart';
+
+export type Fault = {
+  id: string;
+  type: FaultType;
+  startSeconds: number;
+  durationSeconds: number;
+  params: Record<string, string>;
+};
+
 export type Scenario = {
   id: string;
   name: string;
   target: { container: string; baseUrl: string };
-  mode: 'load' | 'chaos' | 'both';
+  mode: Mode;
   endpoints: Endpoint[];
   profile: Profile;
+  faults?: Fault[];
+  probePath?: string;
 };
 
 export type RunStatus = 'pending' | 'running' | 'completed' | 'aborted' | 'failed';
@@ -48,6 +62,20 @@ export type Window = {
   vus: number;
   cpu: number;
   memMb: number;
+  probe?: Probe;
+};
+
+export type Probe = { ms: number; status: number; ok: boolean; error?: string };
+
+export type FaultState = 'active' | 'reverted' | 'failed' | 'skipped';
+
+export type FaultEvent = {
+  faultId: string;
+  type: FaultType;
+  state: FaultState;
+  appliedAt?: number;
+  revertedAt?: number;
+  error?: string;
 };
 
 export type Run = {
@@ -62,11 +90,12 @@ export type Run = {
   endedAt?: string;
 };
 
-export type RunDetail = Run & { windows: Window[] };
+export type RunDetail = Run & { windows: Window[]; faultEvents: FaultEvent[] };
 
 export type LiveEvent =
   | { type: 'windows'; windows: Window[] }
-  | { type: 'status'; status: RunStatus; error?: string };
+  | { type: 'status'; status: RunStatus; error?: string }
+  | { type: 'fault'; fault: FaultEvent };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {

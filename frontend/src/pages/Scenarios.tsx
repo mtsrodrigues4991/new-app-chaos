@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, Scenario } from '../api';
 import { go } from '../router';
-import { profileLabel } from './ScenarioEditor';
+import { scenarioSummary } from './ScenarioEditor';
 
 export default function Scenarios() {
   const [items, setItems] = useState<Scenario[]>([]);
@@ -47,8 +47,7 @@ export default function Scenarios() {
             <tr>
               <th>Nome</th>
               <th>Alvo</th>
-              <th>Endpoints</th>
-              <th>Carga</th>
+              <th>Teste</th>
               <th></th>
             </tr>
           </thead>
@@ -59,10 +58,7 @@ export default function Scenarios() {
                   <a href={`#/cenarios/${s.id}`}>{s.name}</a>
                 </td>
                 <td>{s.target.baseUrl}</td>
-                <td>{s.endpoints.length}</td>
-                <td>
-                  {profileLabel[s.profile.type]}, {s.profile.vus} VUs, {s.profile.durationSeconds} s
-                </td>
+                <td>{scenarioSummary(s)}</td>
                 <td className="actions">
                   <button className="primary" onClick={() => run(s)}>
                     Rodar

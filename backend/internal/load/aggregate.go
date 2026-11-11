@@ -22,6 +22,16 @@ type Window struct {
 	VUs       int     `json:"vus"`
 	CPU       float64 `json:"cpu"`   // % de CPU do container alvo (100 = 1 núcleo)
 	MemMB     float64 `json:"memMb"` // memória do container alvo
+	// Probe é o resultado da sonda (modo só caos): uma requisição por segundo.
+	Probe *Probe `json:"probe,omitempty"`
+}
+
+// Probe é uma requisição de sondagem ao endpoint escolhido.
+type Probe struct {
+	Ms     float64 `json:"ms"`              // tempo até a resposta (ou até o erro)
+	Status int     `json:"status"`          // código HTTP; 0 = sem resposta
+	OK     bool    `json:"ok"`              // 2xx ou 3xx
+	Error  string  `json:"error,omitempty"` // ex.: connection refused, timeout
 }
 
 type bucket struct {
@@ -29,6 +39,7 @@ type bucket struct {
 	hasLoad  bool
 	hasVUs   bool
 	hasStats bool
+	hasProbe bool
 }
 
 // Aggregator junta os resumos do k6 e as estatísticas do container em janelas de 1 segundo.
@@ -75,6 +86,13 @@ func (a *Aggregator) AddStats(ts time.Time, cpu, memMB float64) {
 	b.w.CPU, b.w.MemMB, b.hasStats = round1(cpu), round1(memMB), true
 }
 
+// AddProbe registra a sonda disparada no instante ts.
+func (a *Aggregator) AddProbe(ts time.Time, p Probe) {
+	b := a.bucket(int64(ts.Sub(a.start) / time.Second))
+	p.Ms = round1(p.Ms)
+	b.w.Probe, b.hasProbe = &p, true
+}
+
 // Flush devolve, em ordem, as janelas anteriores a "before" (em segundos desde o início)
 // e as remove do agregador. Use before = MaxSecond para esvaziar tudo.
 func (a *Aggregator) Flush(before int64) []Window {
@@ -89,8 +107,8 @@ func (a *Aggregator) Flush(before int64) []Window {
 	for _, s := range secs {
 		b := a.buckets[s]
 		delete(a.buckets, s)
-		if !b.hasLoad {
-			// Segundo sem resumo do k6 (antes do primeiro ou depois do último período):
+		if !b.hasLoad && !b.hasProbe {
+			// Segundo sem resumo do k6 nem sonda (antes do primeiro ou depois do último período):
 			// mostrar latência e RPS zerados seria enganoso, então a janela fica de fora.
 			continue
 		}

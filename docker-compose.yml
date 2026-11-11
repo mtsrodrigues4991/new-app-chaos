@@ -20,13 +20,6 @@ services:
     depends_on:
       - backend
 
-  # Imagem do injetor de falhas: só é construída aqui; o backend sobe uma
-  # instância por execução, ligada à rede do container alvo.
-  injector:
-    build: ./injector
-    image: new-app-chaos/injector:dev
-    profiles: ["build-only"]
-
   # API de exemplo para testar o app sem precisar de outro projeto.
   demo-api:
     build: ./examples/demo-api

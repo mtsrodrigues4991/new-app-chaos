@@ -7,21 +7,25 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 )
 
-func TestCommandsLatency(t *testing.T) {
-	apply, revert, err := Commands(scenario.Fault{Type: scenario.FaultLatency, Params: map[string]string{"delayMs": "250"}})
-	if err != nil {
-		t.Fatal(err)
+func TestNetemScript(t *testing.T) {
+	f := scenario.Fault{Type: scenario.FaultLatency, Params: map[string]string{scenario.ParamLatency: "250", scenario.ParamJitter: "20"}}
+	if s := NetemScript(f); !strings.Contains(s, "netem delay 250ms 20ms") {
+		t.Errorf("latência: %s", s)
 	}
-	if got := strings.Join(apply, " "); !strings.Contains(got, "netem delay 250ms") {
-		t.Fatalf("comando inesperado: %s", got)
-	}
-	if strings.Join(revert, " ") != "tc qdisc del dev eth0 root" {
-		t.Fatalf("revert inesperado: %v", revert)
+	f = scenario.Fault{Type: scenario.FaultPacketLoss}
+	if s := NetemScript(f); !strings.Contains(s, "netem loss 10%") {
+		t.Errorf("perda com padrão: %s", s)
 	}
 }
 
-func TestCommandsUnknown(t *testing.T) {
-	if _, _, err := Commands(scenario.Fault{Type: "nope"}); err == nil {
-		t.Fatal("esperava erro para falha desconhecida")
+func TestStressArgs(t *testing.T) {
+	f := scenario.Fault{Type: scenario.FaultCPUStress, DurationSeconds: 30, Params: map[string]string{scenario.ParamCPULoad: "90"}}
+	got := strings.Join(StressArgs(f), " ")
+	if got != "cpu -load 90 -workers 1 -timeout 35s" {
+		t.Errorf("cpu: %s", got)
+	}
+	f = scenario.Fault{Type: scenario.FaultMemStress, DurationSeconds: 10, Params: map[string]string{scenario.ParamMemBytes: "80%"}}
+	if got := strings.Join(StressArgs(f), " "); got != "mem -bytes 80% -timeout 15s" {
+		t.Errorf("mem: %s", got)
 	}
 }

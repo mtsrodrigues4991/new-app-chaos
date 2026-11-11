@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS run_metrics (
   data   TEXT NOT NULL,
   PRIMARY KEY (run_id, t)
 );
+CREATE TABLE IF NOT EXISTS run_faults (
+  run_id   TEXT NOT NULL,
+  fault_id TEXT NOT NULL,
+  data     TEXT NOT NULL,
+  PRIMARY KEY (run_id, fault_id)
+);
 `
 
 // Open abre (ou cria) o banco no caminho indicado.
@@ -238,6 +244,25 @@ func (s *Store) ListRuns(ctx context.Context, scenarioID string, limit int) ([]R
 	return out, rows.Err()
 }
 
+// InterruptedRuns lista as execuções que estavam ativas quando o backend parou
+// (para reverter falhas que possam ter ficado aplicadas no alvo).
+func (s *Store) InterruptedRuns(ctx context.Context) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+runCols+` FROM runs WHERE status IN (?, ?)`, string(RunPending), string(RunRunning))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // FailInterrupted marca como falhas as execuções que estavam rodando quando o backend parou.
 func (s *Store) FailInterrupted(ctx context.Context) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE runs SET status = ?, error = ?, ended_at = COALESCE(ended_at, ?)
@@ -289,6 +314,58 @@ func (s *Store) Windows(ctx context.Context, runID string) ([]load.Window, error
 			return nil, err
 		}
 		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// --- falhas injetadas ---
+
+// FaultState é o que aconteceu de fato com uma falha da linha do tempo numa execução.
+type FaultState string
+
+const (
+	FaultActive   FaultState = "active"   // aplicada, ainda não revertida
+	FaultReverted FaultState = "reverted" // aplicada e revertida
+	FaultFailed   FaultState = "failed"   // não pôde ser aplicada ou revertida
+	FaultSkipped  FaultState = "skipped"  // não chegou a rodar (execução terminou antes)
+)
+
+// FaultEvent registra os instantes reais (em segundos desde o início) de uma falha.
+type FaultEvent struct {
+	FaultID    string             `json:"faultId"`
+	Type       scenario.FaultType `json:"type"`
+	State      FaultState         `json:"state"`
+	AppliedAt  *float64           `json:"appliedAt,omitempty"`
+	RevertedAt *float64           `json:"revertedAt,omitempty"`
+	Error      string             `json:"error,omitempty"`
+}
+
+func (s *Store) SaveFaultEvent(ctx context.Context, runID string, ev FaultEvent) error {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO run_faults (run_id, fault_id, data) VALUES (?, ?, ?)`, runID, ev.FaultID, string(data))
+	return err
+}
+
+func (s *Store) FaultEvents(ctx context.Context, runID string) ([]FaultEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM run_faults WHERE run_id = ?`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FaultEvent{}
+	for rows.Next() {
+		var data string
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var ev FaultEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
 	}
 	return out, rows.Err()
 }
