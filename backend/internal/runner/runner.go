@@ -353,6 +353,25 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 			}
 		}
 	}()
+	collector, _ := target.(Collector)
+	if collector != nil {
+		bg.Add(1)
+		go func() { // logs de tempos em tempos (um pod que cai leva o log junto)
+			defer bg.Done()
+			t := time.NewTicker(SnapshotEvery)
+			defer t.Stop()
+			for {
+				select {
+				case <-bgCtx.Done():
+					return
+				case <-t.C:
+					sctx, cancel := context.WithTimeout(bgCtx, 10*time.Second)
+					collector.Snapshot(sctx, started)
+					cancel()
+				}
+			}
+		}()
+	}
 	if probeURL != "" {
 		bg.Add(1)
 		go func() {
@@ -407,6 +426,15 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 	rest := agg.Flush(load.MaxSecond)
 	aggMu.Unlock()
 	emit(rest)
+
+	if collector != nil {
+		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		diag := collector.Diagnostics(dctx, started)
+		cancel()
+		if err := m.Store.SaveDiagnostics(ctx, run.ID, diag); err != nil {
+			log.Printf("run %s: salvando logs e eventos: %v", run.ID, err)
+		}
+	}
 
 	ended := time.Now().UTC()
 	switch {
@@ -499,6 +527,11 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 			skipRest(i)
 			return nil
 		case <-time.After(time.Until(at(f.StartSeconds))):
+		}
+		if c, ok := target.(Collector); ok { // antes da falha: um kill leva o log do pod junto
+			sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			c.Snapshot(sctx, started)
+			cancel()
 		}
 		ev := store.FaultEvent{FaultID: f.ID, Type: f.Type}
 		// Aplica com contexto próprio: um abort no meio não pode deixar a falha "meio aplicada".

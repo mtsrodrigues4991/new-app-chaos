@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
+import Diagnostics from '../components/Diagnostics';
 import {
   Bar,
   BarChart,
@@ -182,6 +183,12 @@ export default function RunView({ id }: { id: string }) {
       {run.verdict && <VerdictPanel run={run} onReference={(referenceRunId) => setRun({ ...run, referenceRunId })} />}
       {bs.length > 0 && <FaultList bands={bs} verdict={run.verdict} />}
       <Charts windows={run.windows} bands={bs} chaosOnly={mode === 'chaos'} duration={p.durationSeconds} k8s={targetPlatform(run.scenario.target) === 'kubernetes'} />
+      {!live(run.status) && (
+        <Diagnostics
+          runId={run.id}
+          spans={bs.filter((b) => b.ev?.appliedAt !== undefined).map((b) => ({ label: faultMeta[b.fault.type].short, from: b.x1, to: b.x2 }))}
+        />
+      )}
       {run.verdict && run.windows.length > 0 && <AIPanel run={run} onReport={(analysis) => setRun({ ...run, analysis })} />}
     </section>
   );

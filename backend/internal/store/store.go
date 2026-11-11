@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS run_chat (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS run_chat_run ON run_chat(run_id, id);
+CREATE TABLE IF NOT EXISTS run_diagnostics (
+  run_id TEXT PRIMARY KEY,
+  data   TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS scenario_baselines (
   scenario_id TEXT PRIMARY KEY,
   run_id      TEXT NOT NULL

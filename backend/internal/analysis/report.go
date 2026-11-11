@@ -124,6 +124,7 @@ Como ler os dados:
 - Latência e erro ficam vazios num segundo sem requisição concluída. "presa" > 0 significa usuários virtuais ativos e nenhuma resposta (alvo travado ou fora do ar); conte isso como indisponibilidade.
 - cpu_pct é do alvo (100 = 1 núcleo inteiro); mem_mb é a memória usada. No Kubernetes são a soma dos pods do Deployment, vindas do metrics-server, que atualiza a cada ~15 s (valores repetidos entre leituras são normais). pods_prontos/pods_total mostram quantos pods estavam prontos (pior momento do bloco).
 - O veredito e a nota (0 a 100) foram calculados pelo app a partir dos SLOs do cenário, sem IA: cada falha vale 70% pelo tempo dentro dos SLOs enquanto ativa e 30% pela recuperação (cheia até 5 s, zero a partir de 60 s); com falhas, a linha de base pesa 20% e as falhas 80%. Explique a nota, não a recalcule nem a contradiga.
+- Quando vierem "Eventos do Kubernetes" e "Logs dos containers", o t de cada linha está na mesma escala da série (segundos desde o início). Cruze-os com a coluna "falha" e as métricas: diga o que o alvo e as dependências registraram durante cada falha (ex.: erro de conexão com o banco, pool esgotado, timeout, reinício, readiness falhando) e quanto tempo depois voltaram ao normal. Cite a linha ou o evento com o t. Linhas "[xN até t=...]" se repetiram N vezes. Se os logs não mostram nada durante uma falha, diga isso; não invente mensagens.
 
 Regras:
 - Responda em português do Brasil, direto, sem enrolação.
@@ -218,11 +219,11 @@ func codeTools(b *coderepo.Browser) []ai.Tool {
 func evidence(in Input) string {
 	var b strings.Builder
 	b.WriteString("# Evidências\n\n")
-	b.WriteString(Describe("Execução analisada", in.Current, MaxRows))
+	b.WriteString(Describe("Execução analisada", in.Current, MaxRows, DiagChars))
 	if in.Reference != nil {
 		b.WriteString("\n")
 		// A referência vai mais resumida: o que importa é a comparação.
-		b.WriteString(Describe("Execução de referência (mesmo cenário)", *in.Reference, 120))
+		b.WriteString(Describe("Execução de referência (mesmo cenário)", *in.Reference, 120, RefDiagChars))
 	}
 	if len(in.History) > 0 {
 		fmt.Fprintf(&b, "\n## Histórico do mesmo cenário (mais recentes primeiro)\n```json\n%s\n```\n", jsonText(in.History))

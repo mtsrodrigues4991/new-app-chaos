@@ -153,3 +153,36 @@ func TestActiveFaultLabelsDependency(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribeDiagnostics(t *testing.T) {
+	var lines []store.LogLine
+	lines = append(lines, store.LogLine{T: 0, Text: "Started PixApplication in 3.2 seconds"})
+	for i := 0; i < 200; i++ {
+		lines = append(lines, store.LogLine{T: float64(i) / 10, Text: "GET /api/v1/pix-keys/" + strings.Repeat("7", i%3+1) + " 200"})
+	}
+	for i := 0; i < 50; i++ {
+		lines = append(lines, store.LogLine{T: 111 + float64(i)/10, Text: "HikariPool-1 - Connection is not available, request timed out after 3000ms (total=10)"})
+	}
+	lines = append(lines, store.LogLine{T: 112, Text: "\tat com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:181)"})
+	d := &store.Diagnostics{
+		Logs:   []store.PodLog{{Namespace: "pix", Pod: "pix-api-0", Container: "pix-api", Role: "alvo", Lines: lines}},
+		Events: []store.KubeEvent{{T: 110.5, Type: "Normal", Reason: "Killing", Namespace: "pix", Object: "Pod/pix-postgres-0", Message: "Stopping container"}},
+		Notes:  []string{"eventos de x: proibido"},
+	}
+	out := DescribeDiagnostics(d, DiagChars)
+	for _, want := range []string{"t=110.5 Normal Killing pix/Pod/pix-postgres-0", "t=111 HikariPool-1 - Connection is not available", "[x50 até t=115.9]",
+		"HikariPool.getConnection", "Started PixApplication", "alvo pix/pix-api-0 (container pix-api)", "proibido"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("faltou %q em:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "pix-keys") > 25 {
+		t.Fatalf("linhas comuns deviam ter sido cortadas:\n%s", out)
+	}
+	if small := DescribeDiagnostics(d, 300); len(small) > 900 || !strings.Contains(small, "omitidas") {
+		t.Fatalf("orçamento não respeitado (%d):\n%s", len(small), small)
+	}
+	if DescribeDiagnostics(nil, DiagChars) != "" {
+		t.Fatal("sem diagnóstico, nada")
+	}
+}

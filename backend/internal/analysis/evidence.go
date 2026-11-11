@@ -26,6 +26,8 @@ type RunData struct {
 	Windows []load.Window
 	Events  []store.FaultEvent
 	Verdict verdict.Verdict
+	// Diagnostics são os logs e eventos coletados (nil em execuções antigas).
+	Diagnostics *store.Diagnostics
 }
 
 // Stats é o resumo numérico de uma execução.
@@ -287,7 +289,8 @@ func duration(r store.Run) string {
 }
 
 // Describe escreve as evidências completas de uma execução.
-func Describe(title string, d RunData, maxRows int) string {
+// diagChars é o orçamento dos logs e eventos (0 = não mandar).
+func Describe(title string, d RunData, maxRows, diagChars int) string {
 	var b strings.Builder
 	r := d.Run
 	fmt.Fprintf(&b, "## %s\n\n", title)
@@ -302,6 +305,9 @@ func Describe(title string, d RunData, maxRows int) string {
 	fmt.Fprintf(&b, "### Falhas: instantes reais (segundos desde o início)\n```json\n%s\n```\n\n", jsonText(d.Events))
 	fmt.Fprintf(&b, "### Resumo numérico\n```json\n%s\n```\n\n", jsonText(Summarize(d.Windows)))
 	fmt.Fprintf(&b, "### Série por segundo (CSV)\n```csv\n%s```\n", Series(d, maxRows))
+	if diagChars > 0 && d.Diagnostics != nil {
+		b.WriteString("\n" + DescribeDiagnostics(d.Diagnostics, diagChars))
+	}
 	return b.String()
 }
 

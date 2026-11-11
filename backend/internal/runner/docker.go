@@ -39,7 +39,7 @@ func (p *dockerPlatform) Resolve(ctx context.Context, sc scenario.Scenario) (Tar
 	if network == "" {
 		return nil, fmt.Errorf("container alvo %q não está numa rede que o app possa usar", name)
 	}
-	return &dockerTarget{p: p, id: id, network: network}, nil
+	return &dockerTarget{p: p, id: id, name: name, network: network}, nil
 }
 
 func (p *dockerPlatform) Recover(ctx context.Context, interrupted []store.Run) {
@@ -80,6 +80,7 @@ func pickNetwork(networks []string) string {
 type dockerTarget struct {
 	p       *dockerPlatform
 	id      string
+	name    string
 	network string
 }
 

@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -300,6 +301,67 @@ func (c *Client) PodLogs(ctx context.Context, ns, name string, tail int) (string
 	var s string
 	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?tailLines=%d", ns, name, tail), nil, &s)
 	return s, err
+}
+
+// PodLogsSince devolve o log de um container desde since, com o instante de cada linha
+// (timestamps=true), limitado às últimas tail linhas. previous lê a instância anterior de um
+// container que reiniciou.
+func (c *Client) PodLogsSince(ctx context.Context, ns, pod, container string, since time.Time, tail int, previous bool) (string, error) {
+	v := url.Values{}
+	v.Set("container", container)
+	v.Set("timestamps", "true")
+	v.Set("sinceTime", since.UTC().Format(time.RFC3339))
+	v.Set("tailLines", strconv.Itoa(tail))
+	if previous {
+		v.Set("previous", "true")
+	}
+	var s string
+	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?%s", ns, pod, v.Encode()), nil, &s)
+	return s, err
+}
+
+// Event é um evento do Kubernetes (core/v1).
+type Event struct {
+	Metadata       Meta   `json:"metadata"`
+	Type           string `json:"type"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	Count          int    `json:"count"`
+	InvolvedObject struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	} `json:"involvedObject"`
+	FirstTimestamp *time.Time `json:"firstTimestamp"`
+	LastTimestamp  *time.Time `json:"lastTimestamp"`
+	EventTime      *time.Time `json:"eventTime"`
+	Series         *struct {
+		Count            int        `json:"count"`
+		LastObservedTime *time.Time `json:"lastObservedTime"`
+	} `json:"series"`
+}
+
+// When devolve o instante mais recente do evento.
+func (e Event) When() time.Time {
+	for _, t := range []*time.Time{e.LastTimestamp, seriesTime(e), e.EventTime, e.FirstTimestamp} {
+		if t != nil && !t.IsZero() {
+			return *t
+		}
+	}
+	return e.Metadata.CreationTimestamp
+}
+
+func seriesTime(e Event) *time.Time {
+	if e.Series == nil {
+		return nil
+	}
+	return e.Series.LastObservedTime
+}
+
+// ListEvents lista os eventos de um namespace.
+func (c *Client) ListEvents(ctx context.Context, ns string) ([]Event, error) {
+	var l list[Event]
+	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/events", ns), nil, &l)
+	return l.Items, err
 }
 
 // PodUsage é o consumo de um pod segundo o metrics-server.

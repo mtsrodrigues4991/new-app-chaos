@@ -50,7 +50,7 @@ func (p *k8sPlatform) Resolve(ctx context.Context, sc scenario.Scenario) (Target
 	if d.Status.ReadyReplicas == 0 {
 		return nil, fmt.Errorf("Deployment %s/%s não tem nenhum pod pronto", ns, name)
 	}
-	return &k8sTarget{p: p, ns: ns, name: name, labels: labels, selector: kube.Selector(labels)}, nil
+	return &k8sTarget{p: p, ns: ns, name: name, labels: labels, selector: kube.Selector(labels), deps: deps(sc)}, nil
 }
 
 // Recover apaga falhas do Chaos Mesh e Jobs do k6 deixados por execuções interrompidas.
@@ -103,6 +103,8 @@ type k8sTarget struct {
 	ns, name string
 	labels   map[string]string
 	selector string
+	deps     []scenario.Dependency // de onde, além do alvo, coletar logs
+	diag     k8sCollector
 }
 
 func (t *k8sTarget) PrepareLoad(ctx context.Context, image string) error { return nil } // o kubelet baixa

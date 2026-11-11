@@ -320,6 +320,21 @@ func (c *Client) LogsTail(ctx context.Context, id string, lines int) (string, er
 	return out.String(), nil
 }
 
+// LogsSince devolve stdout e stderr do container desde since, com o instante de cada linha
+// (timestamps=1), limitado às últimas tail linhas.
+func (c *Client) LogsSince(ctx context.Context, id string, since time.Time, tail int) (string, error) {
+	resp, err := c.request(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/logs?stdout=1&stderr=1&timestamps=1&since=%d&tail=%d", id, since.Unix(), tail), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out strings.Builder
+	if err := demux(resp.Body, &out, &out); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
 // demux separa o stream multiplexado do Docker (cabeçalho de 8 bytes por bloco) em stdout e stderr.
 func demux(r io.Reader, stdout, stderr io.Writer) error {
 	hdr := make([]byte, 8)
