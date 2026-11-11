@@ -141,7 +141,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "obs" {
   os_disk_size_gb       = 64
   node_labels           = { pool = "obs" }
   node_taints           = ["pool=obs:NoSchedule"]
-  tags = local.tags
+  tags                  = local.tags
 }
 
 # Pool "load": a injetora do k6, em máquina spot (bem mais barata; a AKS põe o taint de spot).

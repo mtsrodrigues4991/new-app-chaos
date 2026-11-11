@@ -22,9 +22,8 @@ if [[ -z "$APP_ID" ]]; then
   APP_ID=$(az ad app create --display-name new-app-chaos-github --query appId -o tsv)
 fi
 az ad sp show --id "$APP_ID" >/dev/null 2>&1 || az ad sp create --id "$APP_ID" >/dev/null
-for ref in main; do
-  az ad app federated-credential create --id "$APP_ID" --parameters "{\"name\":\"gh-$ref\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"repo:$REPO:ref:refs/heads/$ref\",\"audiences\":[\"api://AzureADTokenExchange\"]}" >/dev/null 2>&1 || true
-done
+# Só a branch main pode entrar na Azure (os workflows Ligar/Desligar rodam nela).
+az ad app federated-credential create --id "$APP_ID" --parameters "{\"name\":\"gh-main\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"repo:$REPO:ref:refs/heads/main\",\"audiences\":[\"api://AzureADTokenExchange\"]}" >/dev/null 2>&1 || true
 
 echo "==> Permissão de dono SÓ no resource group $RG"
 RG_ID=$(az group show -n "$RG" --query id -o tsv)
