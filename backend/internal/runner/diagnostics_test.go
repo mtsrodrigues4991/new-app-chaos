@@ -40,6 +40,15 @@ func TestK8sDiagnostics(t *testing.T) {
 	}
 	f.Put(kubefake.Ref{GV: "v1", Plural: "events"}, ev("velho", "Normal", "Pulled", started.Add(-time.Hour)))
 	f.Put(kubefake.Ref{GV: "v1", Plural: "events"}, ev("e1", "Warning", "BackOff", started.Add(20*time.Second)))
+	// Do Chaos Mesh fica só o que importa (Applied/Recovered), não a contabilidade interna.
+	chaosEv := func(name, reason string) kubefake.Obj {
+		o := ev(name, "Normal", reason, started.Add(25*time.Second))
+		o["involvedObject"] = kubefake.Obj{"kind": "PodChaos", "name": "nac-r1"}
+		return o
+	}
+	f.Put(kubefake.Ref{GV: "v1", Plural: "events"}, chaosEv("c1", "Updated"))
+	f.Put(kubefake.Ref{GV: "v1", Plural: "events"}, chaosEv("c2", "FinalizerInited"))
+	f.Put(kubefake.Ref{GV: "v1", Plural: "events"}, chaosEv("c3", "Applied"))
 	d := c.Diagnostics(context.Background(), started)
 
 	if len(d.Logs) != 3 { // 2 pods do alvo + o do banco
@@ -51,7 +60,8 @@ func TestK8sDiagnostics(t *testing.T) {
 	if l := d.Logs[2].Lines; len(l) != 1 || l[0].T != 5 || !strings.Contains(l[0].Text, "FATAL") {
 		t.Fatalf("linhas=%+v", l)
 	}
-	if len(d.Events) != 1 || d.Events[0].Reason != "BackOff" || d.Events[0].T != 20 || d.Events[0].Object != "Pod/pix-postgres-0" || d.Events[0].Count != 2 {
+	if len(d.Events) != 2 || d.Events[0].Reason != "BackOff" || d.Events[0].T != 20 || d.Events[0].Object != "Pod/pix-postgres-0" || d.Events[0].Count != 2 ||
+		d.Events[1].Reason != "Applied" {
 		t.Fatalf("eventos=%+v", d.Events)
 	}
 }

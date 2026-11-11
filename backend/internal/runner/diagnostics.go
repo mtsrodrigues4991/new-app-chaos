@@ -17,8 +17,8 @@ import (
 
 // Collector é opcional: um alvo que junta logs (e, no Kubernetes, eventos) para a IA.
 type Collector interface {
-	// Snapshot guarda os logs até agora. Roda antes de cada falha e de tempos em tempos,
-	// porque um kill apaga o pod e, com ele, o log.
+	// Snapshot acompanha os pods novos (no Kubernetes, abre o stream do log de cada um). Roda
+	// antes de cada falha e de tempos em tempos.
 	Snapshot(ctx context.Context, started time.Time)
 	// Diagnostics faz a última coleta e devolve tudo, no fim da execução.
 	Diagnostics(ctx context.Context, started time.Time) store.Diagnostics
@@ -29,8 +29,8 @@ const (
 	LogTailLines = 3000
 	// MaxEvents limita os eventos guardados (os Warning têm prioridade).
 	MaxEvents = 300
-	// SnapshotEvery é o intervalo das coletas de log durante a execução.
-	SnapshotEvery = 15 * time.Second
+	// SnapshotEvery é o intervalo em que o app procura pods novos (para abrir o stream do log).
+	SnapshotEvery = 5 * time.Second
 )
 
 // parseLogLines lê linhas no formato "<RFC3339Nano> texto" (timestamps do Kubernetes e do
@@ -68,6 +68,11 @@ type k8sCollector struct {
 	groups   []podGroup
 	resolved bool
 	notes    []string
+	// Um stream de log (follow) por instância de container: ns/pod/container#restarts.
+	streams map[string]bool
+	stop    context.CancelFunc
+	sctx    context.Context
+	wg      sync.WaitGroup
 }
 
 // groupsOf resolve (uma vez) os pods a acompanhar: o alvo e as dependências das falhas.
@@ -94,12 +99,17 @@ func (t *k8sTarget) groupsOf(ctx context.Context) []podGroup {
 	return c.groups
 }
 
+// Snapshot acha os pods do alvo e das dependências e abre um stream de log (follow) para cada
+// container novo. O stream fica aberto até o container terminar, então pega até as últimas
+// linhas de um pod apagado pelo kill.
 func (t *k8sTarget) Snapshot(ctx context.Context, started time.Time) {
 	c := &t.diag
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.logs == nil {
 		c.logs = map[string]*store.PodLog{}
+		c.streams = map[string]bool{}
+		c.sctx, c.stop = context.WithTimeout(context.Background(), 6*time.Hour)
 	}
 	alive := map[string]bool{}
 	for _, g := range t.groupsOf(ctx) {
@@ -110,10 +120,20 @@ func (t *k8sTarget) Snapshot(ctx context.Context, started time.Time) {
 		for _, p := range pods {
 			alive[g.ns+"/"+p.Metadata.Name] = true
 			for _, cs := range p.Status.ContainerStatuses {
-				t.fetch(ctx, c, g, p.Metadata.Name, cs.Name, started, false)
-				if cs.RestartCount > 0 {
-					t.fetch(ctx, c, g, p.Metadata.Name, cs.Name, started, true)
+				if cs.State.Waiting != nil && cs.RestartCount == 0 {
+					continue // ainda não subiu: a próxima coleta pega
 				}
+				key := fmt.Sprintf("%s/%s/%s#%d", g.ns, p.Metadata.Name, cs.Name, cs.RestartCount)
+				if c.streams[key] {
+					continue
+				}
+				first := !c.streams[fmt.Sprintf("%s/%s/%s#%d", g.ns, p.Metadata.Name, cs.Name, cs.RestartCount-1)]
+				c.streams[key] = true
+				if cs.RestartCount > 0 && first {
+					// Reiniciou antes de ser visto: guarda o log da instância anterior.
+					t.fetchPrevious(ctx, c, g, p.Metadata.Name, cs.Name, started)
+				}
+				t.follow(c, g, p.Metadata.Name, cs.Name, started)
 			}
 		}
 	}
@@ -124,23 +144,62 @@ func (t *k8sTarget) Snapshot(ctx context.Context, started time.Time) {
 	}
 }
 
-func (t *k8sTarget) fetch(ctx context.Context, c *k8sCollector, g podGroup, pod, container string, started time.Time, previous bool) {
-	raw, err := t.p.kube.PodLogsSince(ctx, g.ns, pod, container, started, LogTailLines, previous)
-	if err != nil {
-		return // ex.: o container ainda está subindo; a próxima coleta pega
-	}
-	lines := parseLogLines(raw, started)
+func (t *k8sTarget) entry(c *k8sCollector, g podGroup, pod, container string, previous bool) *store.PodLog {
 	key := g.ns + "/" + pod + "/" + container
 	if previous {
 		key += "/previous"
 	}
-	c.logs[key] = &store.PodLog{Namespace: g.ns, Pod: pod, Container: container, Role: g.role,
-		Previous: previous, Truncated: len(lines) >= LogTailLines, Lines: lines}
+	l := c.logs[key]
+	if l == nil {
+		l = &store.PodLog{Namespace: g.ns, Pod: pod, Container: container, Role: g.role, Previous: previous, Lines: []store.LogLine{}}
+		c.logs[key] = l
+	}
+	return l
+}
+
+// follow abre o stream de um container; as linhas vão para o mesmo registro do pod (depois de
+// um reinício, a instância nova continua no mesmo log).
+func (t *k8sTarget) follow(c *k8sCollector, g podGroup, pod, container string, started time.Time) {
+	t.entry(c, g, pod, container, false)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		_ = t.p.kube.FollowPodLogs(c.sctx, g.ns, pod, container, started, func(line string) {
+			ls := parseLogLines(line, started)
+			c.mu.Lock()
+			l := t.entry(c, g, pod, container, false)
+			l.Lines = append(l.Lines, ls...)
+			if n := len(l.Lines); n > LogTailLines {
+				l.Lines = append(l.Lines[:0:0], l.Lines[n-LogTailLines:]...)
+				l.Truncated = true
+			}
+			c.mu.Unlock()
+		})
+	}()
+}
+
+func (t *k8sTarget) fetchPrevious(ctx context.Context, c *k8sCollector, g podGroup, pod, container string, started time.Time) {
+	raw, err := t.p.kube.PodLogsSince(ctx, g.ns, pod, container, started, LogTailLines, true)
+	if err != nil {
+		return
+	}
+	l := t.entry(c, g, pod, container, true)
+	l.Lines = parseLogLines(raw, started)
+	l.Truncated = len(l.Lines) >= LogTailLines
 }
 
 func (t *k8sTarget) Diagnostics(ctx context.Context, started time.Time) store.Diagnostics {
 	t.Snapshot(ctx, started)
 	c := &t.diag
+	// Dá um instante para as últimas linhas chegarem e fecha os streams.
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+	}
+	if c.stop != nil {
+		c.stop()
+	}
+	c.wg.Wait()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d := store.Diagnostics{Logs: []store.PodLog{}, Events: []store.KubeEvent{}, Notes: append([]string(nil), c.notes...)}
@@ -176,7 +235,7 @@ func (t *k8sTarget) Diagnostics(ctx context.Context, started time.Time) store.Di
 		}
 		for _, e := range evs {
 			at := e.When()
-			if at.Before(started.Add(-30 * time.Second)) {
+			if at.Before(started.Add(-30*time.Second)) || chaosNoise(e) {
 				continue
 			}
 			count := e.Count
@@ -191,6 +250,19 @@ func (t *k8sTarget) Diagnostics(ctx context.Context, started time.Time) store.Di
 	}
 	d.Events = capEvents(d.Events, MaxEvents)
 	return d
+}
+
+// chaosNoise diz se o evento é só a contabilidade interna do Chaos Mesh (Updated,
+// FinalizerInited...). Dos recursos do Chaos Mesh ficam só aplicar, recuperar e os erros.
+func chaosNoise(e kube.Event) bool {
+	if !strings.HasSuffix(e.InvolvedObject.Kind, "Chaos") {
+		return false
+	}
+	switch e.Reason {
+	case "Applied", "Recovered", "Failed":
+		return false
+	}
+	return e.Type != "Warning"
 }
 
 // capEvents ordena por instante e, acima de max, fica com os Warning e os mais recentes.
