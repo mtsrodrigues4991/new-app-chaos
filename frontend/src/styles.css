@@ -73,6 +73,8 @@ input:disabled { opacity: 0.5; }
 .editor fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 16px; padding: 12px 16px 16px; max-width: 960px; }
 .editor legend { font-weight: 600; padding: 0 6px; }
 .editor label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.editor label.check { flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; align-self: flex-end; padding-bottom: 8px; flex: 0 0 auto; }
+.editor label.check input { width: auto; }
 .editor .row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
 .editor .grow { flex: 1; min-width: 260px; }
 .editor .endpoints { margin: 0 0 12px; }
@@ -227,3 +229,4 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); border
   pre.code { white-space: pre-wrap; break-inside: avoid; }
   .code-read ul { display: block; }
 }
+.editor label.wide { min-width: 280px; }

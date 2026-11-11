@@ -55,7 +55,21 @@ export type Profile = { type: ProfileType; vus: number; durationSeconds: number 
 
 export type Mode = 'load' | 'chaos' | 'both';
 
-export type FaultType = 'latency' | 'packet_loss' | 'cpu_stress' | 'memory_stress' | 'kill_restart';
+export type FaultType =
+  | 'latency'
+  | 'packet_loss'
+  | 'cpu_stress'
+  | 'memory_stress'
+  | 'kill_restart'
+  // Só no Kubernetes (Chaos Mesh).
+  | 'io_latency'
+  | 'io_fault'
+  | 'dns_error'
+  | 'http_delay'
+  | 'http_abort';
+
+// Deployment do cluster usado pelo alvo (ex.: o banco), onde uma falha pode ser aplicada.
+export type Dependency = { namespace: string; deployment: string };
 
 export type Fault = {
   id: string;
@@ -63,6 +77,9 @@ export type Fault = {
   startSeconds: number;
   durationSeconds: number;
   params: Record<string, string>;
+  // Kubernetes: falha aplicada numa dependência; com linkOnly (latência e perda), só no caminho do alvo até ela.
+  dependency?: Dependency;
+  linkOnly?: boolean;
 };
 
 export type Scenario = {

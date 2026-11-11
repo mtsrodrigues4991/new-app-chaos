@@ -89,7 +89,35 @@ const (
 	FaultCPUStress   FaultType = "cpu_stress"
 	FaultMemStress   FaultType = "memory_stress"
 	FaultKillRestart FaultType = "kill_restart"
+
+	// Só no Kubernetes (Chaos Mesh).
+	FaultIOLatency FaultType = "io_latency" // atraso nas operações de disco de um volume
+	FaultIOFault   FaultType = "io_fault"   // erro (errno) nas operações de disco de um volume
+	FaultDNSError  FaultType = "dns_error"  // resolução de nomes falha
+	FaultHTTPDelay FaultType = "http_delay" // atraso nas requisições HTTP que chegam aos pods
+	FaultHTTPAbort FaultType = "http_abort" // requisições HTTP que chegam aos pods são abortadas
 )
+
+// KubernetesOnly diz se o tipo de falha só existe no Kubernetes.
+func (t FaultType) KubernetesOnly() bool {
+	switch t {
+	case FaultIOLatency, FaultIOFault, FaultDNSError, FaultHTTPDelay, FaultHTTPAbort:
+		return true
+	}
+	return false
+}
+
+// IsNetwork diz se a falha é de rede (pode ficar restrita ao caminho até uma dependência).
+func (t FaultType) IsNetwork() bool { return t == FaultLatency || t == FaultPacketLoss }
+
+// Dependency é um Deployment do cluster usado pelo alvo (ex.: o banco), em que uma falha pode ser aplicada.
+type Dependency struct {
+	Namespace  string `json:"namespace"`
+	Deployment string `json:"deployment"`
+}
+
+// Name é namespace/deployment.
+func (d Dependency) Name() string { return d.Namespace + "/" + d.Deployment }
 
 // Fault é uma falha posicionada na linha do tempo (marco 3).
 // Os nomes dos parâmetros seguem os do krkn (ver faults.go).
@@ -99,6 +127,22 @@ type Fault struct {
 	StartSeconds    int               `json:"startSeconds"`    // a partir do início da execução
 	DurationSeconds int               `json:"durationSeconds"` // depois disso a falha é revertida
 	Params          map[string]string `json:"params"`          // ex.: {"latency":"200"}
+	// Kubernetes: aplica a falha numa dependência em vez do alvo. Com LinkOnly (só latência e
+	// perda), a falha fica nos pods do alvo, mas só no tráfego que vai para a dependência.
+	Dependency *Dependency `json:"dependency,omitempty"`
+	LinkOnly   bool        `json:"linkOnly,omitempty"`
+}
+
+// Where descreve onde a falha é aplicada, para mensagens e evidências.
+func (f Fault) Where() string {
+	switch {
+	case f.Dependency == nil:
+		return "alvo"
+	case f.LinkOnly:
+		return "caminho até " + f.Dependency.Name()
+	default:
+		return "dependência " + f.Dependency.Name()
+	}
 }
 
 // SLO são os critérios de aprovação do veredito. Cada segundo da execução é "dentro" ou "fora"
@@ -243,11 +287,30 @@ func (s Scenario) Validate() error {
 			errs = append(errs, "adicione pelo menos uma falha na linha do tempo")
 		}
 		errs = append(errs, validateFaults(s.Faults, s.Profile.DurationSeconds)...)
-		if s.Target.EffectivePlatform() != PlatformKubernetes {
-			for _, f := range s.Faults {
+		k8s := s.Target.EffectivePlatform() == PlatformKubernetes
+		for _, f := range s.Faults {
+			name := fmt.Sprintf("falha %s em %ds", f.Type, f.StartSeconds)
+			if !k8s {
 				if f.Params[ParamPods] != "" {
-					errs = append(errs, fmt.Sprintf("falha %s em %ds: \"pods\" só vale para alvos no Kubernetes", f.Type, f.StartSeconds))
+					errs = append(errs, name+": \"pods\" só vale para alvos no Kubernetes")
 				}
+				if f.Type.KubernetesOnly() {
+					errs = append(errs, name+": só existe para alvos no Kubernetes")
+				}
+				if f.Dependency != nil {
+					errs = append(errs, name+": dependência só vale para alvos no Kubernetes")
+				}
+				continue
+			}
+			if d := f.Dependency; d != nil {
+				if d.Namespace == "" || d.Deployment == "" {
+					errs = append(errs, name+": escolha o Deployment da dependência (namespace e nome)")
+				} else if d.Namespace == s.Target.Namespace && d.Deployment == s.Target.Deployment {
+					errs = append(errs, name+": a dependência é o próprio alvo")
+				}
+			}
+			if f.LinkOnly && (f.Dependency == nil || !f.Type.IsNetwork()) {
+				errs = append(errs, name+": \"só o caminho até a dependência\" vale só para latência e perda de pacotes com uma dependência escolhida")
 			}
 		}
 	}

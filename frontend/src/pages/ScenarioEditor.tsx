@@ -197,6 +197,15 @@ export default function ScenarioEditor({ id }: { id?: string }) {
   };
 
   const known = containers.some((c) => c.name === draft.target.container);
+  const availableTypes = faultTypes.filter((t) => k8s || !faultMeta[t].k8sOnly);
+  // Dependências possíveis: os outros Deployments do cluster.
+  const depOptions = deployments.filter((d) => `${d.namespace}/${d.name}` !== depKey);
+  const selDepKey = sel?.dependency ? `${sel.dependency.namespace}/${sel.dependency.deployment}` : '';
+  const pickFaultDep = (key: string) => {
+    if (!key) return setSel({ dependency: undefined, linkOnly: undefined });
+    const [namespace, deployment] = key.split('/');
+    setSel({ dependency: { namespace, deployment } });
+  };
   const knownDep = deployments.some((d) => `${d.namespace}/${d.name}` === depKey);
   const bothPlatforms = !!health?.docker && !!health?.kubernetes;
 
@@ -458,7 +467,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             marco, uma falha por vez. Toda falha é desfeita no fim do bloco, ao abortar ou se o backend reiniciar.
           </p>
           <div className="fault-add">
-            {faultTypes.map((t) => (
+            {availableTypes.map((t) => (
               <button key={t} onClick={() => addFault(t)} style={{ ['--c' as string]: faultMeta[t].color }}>
                 <span className="swatch" /> {faultMeta[t].label}
               </button>
@@ -485,7 +494,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
                 <label>
                   Falha
                   <select value={sel.type} onChange={(e) => setSel({ type: e.target.value as FaultType, params: {} })}>
-                    {faultTypes.map((t) => (
+                    {availableTypes.map((t) => (
                       <option key={t} value={t}>
                         {faultMeta[t].label}
                       </option>
@@ -501,6 +510,28 @@ export default function ScenarioEditor({ id }: { id?: string }) {
                   <input type="number" min={1} value={sel.durationSeconds} onChange={(e) => setSel({ durationSeconds: Math.max(1, Number(e.target.value)) })} />
                 </label>
                 {k8s && (
+                  <label title="Onde a falha é aplicada">
+                    Aplicar em
+                    <select value={selDepKey} onChange={(e) => pickFaultDep(e.target.value)}>
+                      <option value="">Alvo ({draft.target.deployment || 'Deployment'})</option>
+                      {selDepKey && !depOptions.some((d) => `${d.namespace}/${d.name}` === selDepKey) && (
+                        <option value={selDepKey}>{selDepKey} (não encontrado)</option>
+                      )}
+                      {depOptions.map((d) => (
+                        <option key={`${d.namespace}/${d.name}`} value={`${d.namespace}/${d.name}`}>
+                          Dependência: {d.namespace}/{d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {k8s && sel.dependency && faultMeta[sel.type].network && (
+                  <label className="check" title="A falha fica nos pods do alvo, só no tráfego que vai para a dependência">
+                    <input type="checkbox" checked={!!sel.linkOnly} onChange={(e) => setSel({ linkOnly: e.target.checked || undefined })} />
+                    Só no caminho do alvo até ela
+                  </label>
+                )}
+                {k8s && (
                   <label title="pods">
                     Pods atingidos
                     <select
@@ -513,7 +544,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
                   </label>
                 )}
                 {faultMeta[sel.type].params.map((p) => (
-                  <label key={p.key} title={p.key}>
+                  <label key={p.key} title={p.key} className={p.key === 'volume-path' || p.key === 'patterns' ? 'wide' : undefined}>
                     {p.label}
                     {p.unit ? ` (${p.unit})` : ''}
                     <input
@@ -529,7 +560,13 @@ export default function ScenarioEditor({ id }: { id?: string }) {
               </div>
               <p className="muted small">
                 {k8s ? faultMeta[sel.type].k8sHelp : faultMeta[sel.type].help}
-                {faultMeta[sel.type].params.some((p) => p.help) && ` Quantidade: ${faultMeta[sel.type].params.find((p) => p.help)?.help}.`}
+                {faultMeta[sel.type].params
+                  .filter((p) => p.help)
+                  .map((p) => ` ${p.label}: ${p.help}.`)
+                  .join('')}
+                {k8s && sel.dependency && (sel.linkOnly
+                  ? ` Só os pacotes do alvo para ${sel.dependency.deployment} são afetados; o resto do tráfego segue normal.`
+                  : ` A falha atinge os pods de ${sel.dependency.namespace}/${sel.dependency.deployment}; a carga continua no alvo e o veredito mede o efeito nele.`)}
               </p>
               <button className="link danger" onClick={() => { setFaults(faults.filter((f) => f.id !== sel.id)); setSelected(null); }}>
                 Remover falha

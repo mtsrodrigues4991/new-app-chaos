@@ -83,6 +83,21 @@ func (p *k8sPlatform) Recover(ctx context.Context, _ []store.Run) {
 	}
 }
 
+// dependency acha os pods de um Deployment usado pelo alvo (ex.: o banco).
+func (p *k8sPlatform) dependency(ctx context.Context, d scenario.Dependency) (chaosmesh.Target, error) {
+	dep, err := p.kube.GetDeployment(ctx, d.Namespace, d.Deployment)
+	if errors.Is(err, kube.ErrNotFound) {
+		return chaosmesh.Target{}, fmt.Errorf("Deployment da dependência %s não existe", d.Name())
+	}
+	if err != nil {
+		return chaosmesh.Target{}, err
+	}
+	if len(dep.Spec.Selector.MatchLabels) == 0 {
+		return chaosmesh.Target{}, fmt.Errorf("Deployment da dependência %s não tem selector.matchLabels", d.Name())
+	}
+	return chaosmesh.Target{Namespace: d.Namespace, MatchLabels: dep.Spec.Selector.MatchLabels}, nil
+}
+
 type k8sTarget struct {
 	p        *k8sPlatform
 	ns, name string
@@ -147,26 +162,61 @@ func podReady(p kube.Pod) bool {
 	return true
 }
 
+// release apaga o recurso em path e, se ele não sumir em 15 polls, tira o finalizer.
+func (p *k8sPlatform) release(ctx context.Context, path string, waitGone func(context.Context) error) error {
+	c := p.kube
+	if err := c.Delete(ctx, path, ""); err != nil {
+		return err
+	}
+	wctx, cancel := context.WithTimeout(ctx, 15*p.Poll)
+	err := waitGone(wctx)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	patch := map[string]any{"metadata": map[string]any{"finalizers": nil}}
+	if err := c.Patch(ctx, path, patch); err != nil && !errors.Is(err, kube.ErrNotFound) {
+		return fmt.Errorf("tirando o finalizer: %w", err)
+	}
+	if err := waitGone(ctx); err != nil {
+		return err
+	}
+	log.Printf("%s removido à força (o Chaos Mesh não o liberou)", path)
+	return nil
+}
+
 // ApplyFault cria o recurso do Chaos Mesh e espera ele confirmar a injeção.
 func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fault) (chaos.Revert, error) {
 	name := chaosmesh.Name("nac", runID, string(f.Type), fmt.Sprint(f.StartSeconds))
-	kind, obj, err := chaosmesh.Build(f, chaosmesh.Target{Namespace: t.ns, MatchLabels: t.labels}, name, runID)
+	where := chaosmesh.Target{Namespace: t.ns, MatchLabels: t.labels}
+	var link *chaosmesh.Target
+	if d := f.Dependency; d != nil {
+		dep, err := t.p.dependency(ctx, *d)
+		if err != nil {
+			return nil, err
+		}
+		if f.LinkOnly {
+			link = &dep // a falha fica no alvo, só no tráfego até a dependência
+		} else {
+			where = dep
+		}
+	}
+	kind, obj, err := chaosmesh.Build(f, where, link, name, runID)
 	if err != nil {
 		return nil, err
 	}
+	ns := where.Namespace // o recurso fica no namespace dos pods atingidos
 	c := t.p.kube
-	if err := c.Create(ctx, chaosmesh.Path(kind, t.ns, ""), obj); err != nil {
+	if err := c.Create(ctx, chaosmesh.Path(kind, ns, ""), obj); err != nil {
 		if errors.Is(err, kube.ErrNotFound) {
 			return nil, errors.New("o Chaos Mesh não está instalado no cluster (os recursos chaos-mesh.org não existem)")
 		}
 		return nil, fmt.Errorf("criando %s: %w", kind.Kind, err)
 	}
-	path := chaosmesh.Path(kind, t.ns, name)
-	revert := func(ctx context.Context) error {
-		if err := c.Delete(ctx, path, ""); err != nil {
-			return fmt.Errorf("apagando %s: %w", kind.Kind, err)
-		}
-		// O Chaos Mesh desfaz a falha antes de liberar o recurso (finalizer): espera sumir.
+	path := chaosmesh.Path(kind, ns, name)
+	// waitGone espera o recurso sumir: o Chaos Mesh desfaz a falha antes de liberar o
+	// finalizer dele.
+	waitGone := func(ctx context.Context) error {
 		for {
 			err := c.Do(ctx, "GET", path, nil, nil)
 			if errors.Is(err, kube.ErrNotFound) {
@@ -174,33 +224,65 @@ func (t *k8sTarget) ApplyFault(ctx context.Context, runID string, f scenario.Fau
 			}
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("o Chaos Mesh não desfez %s a tempo (confira com kubectl get %s -n %s)", name, kind.Plural, t.ns)
+				return ctx.Err()
 			case <-time.After(t.p.Poll / 2):
 			}
 		}
 	}
-	deadline := time.Now().Add(t.p.InjectTimeout)
-	for {
-		var got struct {
-			Status chaosmesh.Status `json:"status"`
+	revert := func(ctx context.Context) error {
+		if err := c.Delete(ctx, path, ""); err != nil {
+			return fmt.Errorf("apagando %s: %w", kind.Kind, err)
 		}
-		if err := c.Do(ctx, "GET", path, nil, &got); err != nil && !errors.Is(err, kube.ErrNotFound) {
-			_ = revert(context.Background())
-			return nil, fmt.Errorf("lendo %s: %w", kind.Kind, err)
+		if waitGone(ctx) != nil {
+			return fmt.Errorf("o Chaos Mesh não desfez %s a tempo (confira com kubectl get %s -n %s)", name, kind.Plural, ns)
+		}
+		return nil
+	}
+	// discard tira do cluster uma falha que não confirmou, em segundo plano para não atrasar
+	// as próximas falhas. Se o Chaos Mesh não libera o recurso (ele tenta desfazer nos pods
+	// onde a injeção falhou e trava no finalizer), tira o finalizer: senão ele fica preso.
+	discard := func() string {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if err := t.p.release(ctx, path, waitGone); err != nil {
+				log.Printf("%s %s/%s ficou preso no cluster (kubectl get %s %s -n %s): %v", kind.Kind, ns, name, kind.Plural, name, ns, err)
+			}
+		}()
+		return "; o recurso está sendo removido do cluster"
+	}
+	started := time.Now()
+	deadline := started.Add(t.p.InjectTimeout)
+	type status struct {
+		Status chaosmesh.Status `json:"status"`
+	}
+	for {
+		var got status
+		err := c.Do(ctx, "GET", path, nil, &got)
+		timedOut := time.Now().After(deadline) || ctx.Err() != nil
+		if err != nil && !errors.Is(err, kube.ErrNotFound) && !timedOut {
+			return nil, fmt.Errorf("lendo %s: %w%s", kind.Kind, err, discard())
+		}
+		if err != nil && timedOut {
+			// O prazo acabou no meio da leitura: lê de novo, com um contexto próprio, para
+			// trazer o motivo que o Chaos Mesh registrou (ex.: ebtables).
+			rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = c.Do(rctx, "GET", path, nil, &got)
+			cancel()
 		}
 		ok, lastErr := got.Status.Injected()
 		if ok {
 			return revert, nil
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			rctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			_ = revert(rctx)
-			cancel()
-			msg := fmt.Sprintf("o Chaos Mesh não confirmou a falha em %s", t.p.InjectTimeout)
+		if timedOut {
+			msg := fmt.Sprintf("o Chaos Mesh não confirmou a falha em %s", time.Since(started).Round(time.Second))
 			if lastErr != "" {
 				msg += ": " + lastErr
 			}
-			return nil, errors.New(msg)
+			if strings.Contains(lastErr, "ebtables") {
+				msg += " (o kernel dos nós não tem o módulo ebtables, que as falhas HTTP exigem; o kernel do WSL2 não tem)"
+			}
+			return nil, errors.New(msg + discard())
 		}
 		time.Sleep(t.p.Poll / 2)
 	}

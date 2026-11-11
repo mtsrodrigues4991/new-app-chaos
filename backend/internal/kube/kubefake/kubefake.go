@@ -260,9 +260,42 @@ func (s *Server) handle(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 		writeJSON(w, http.StatusOK, Obj{"kind": "Status", "status": "Success"})
-	case req.Method == http.MethodDelete:
-		if s.Get(r, ns, name) == nil {
+	case req.Method == http.MethodPatch && name != "":
+		o := s.Get(r, ns, name)
+		if o == nil {
 			notFound(w, name)
+			return
+		}
+		var patch Obj
+		if err := json.NewDecoder(req.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, Obj{"message": err.Error()})
+			return
+		}
+		gone := false
+		s.Update(r, ns, name, func(o Obj) {
+			mergePatch(o, patch)
+			gone = meta(o)["deletionTimestamp"] != nil && len(finalizers(o)) == 0
+		})
+		if gone {
+			s.Remove(r, ns, name)
+			s.cascade(r, ns, name)
+		}
+		writeJSON(w, http.StatusOK, Obj{"kind": "Status", "status": "Success"})
+	case req.Method == http.MethodDelete:
+		o := s.Get(r, ns, name)
+		if o == nil {
+			notFound(w, name)
+			return
+		}
+		held := false
+		s.Update(r, ns, name, func(o Obj) {
+			if len(finalizers(o)) > 0 { // como no API server: marca e espera os finalizers saírem
+				meta(o)["deletionTimestamp"] = "2026-01-01T00:00:00Z"
+				held = true
+			}
+		})
+		if held {
+			writeJSON(w, http.StatusOK, Obj{"kind": "Status", "status": "Success"})
 			return
 		}
 		s.Remove(r, ns, name)
@@ -324,4 +357,26 @@ func (s *Server) Pod(ns, name string, labels map[string]string, ready bool) {
 		"status": Obj{"phase": "Running", "podIP": "10.0.0.1",
 			"containerStatuses": []Obj{{"name": "main", "ready": ready, "state": Obj{"running": Obj{}}}}},
 	})
+}
+
+// mergePatch aplica um JSON merge patch (RFC 7386) em o.
+func mergePatch(o, patch Obj) {
+	for k, v := range patch {
+		if v == nil {
+			delete(o, k)
+			continue
+		}
+		pv, ok := v.(map[string]any)
+		ov, ook := o[k].(map[string]any)
+		if ok && ook {
+			mergePatch(ov, pv)
+			continue
+		}
+		o[k] = v
+	}
+}
+
+func finalizers(o Obj) []any {
+	f, _ := meta(o)["finalizers"].([]any)
+	return f
 }

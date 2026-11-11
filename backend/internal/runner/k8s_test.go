@@ -96,9 +96,26 @@ func TestK8sApplyFaultNotConfirmed(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "não confirmou") || !strings.Contains(err.Error(), "sem permissão") {
 		t.Fatalf("erro=%v", err)
 	}
-	if n := len(f.List(kubefake.Ref{GV: chaosmesh.Group, Plural: "stresschaos"})); n != 0 {
-		t.Fatalf("a falha não confirmada deveria ter sido apagada (%d restantes)", n)
+	waitEmpty(t, f, kubefake.Ref{GV: chaosmesh.Group, Plural: "stresschaos"})
+}
+
+// O caso real do WSL2: o HTTPChaos não injeta (sem ebtables) e o Chaos Mesh não libera o
+// finalizer. O recurso tem que sair do cluster mesmo assim.
+func TestK8sApplyFaultStuckFinalizer(t *testing.T) {
+	f, p := cluster(t)
+	f.OnCreate = func(s *kubefake.Server, r kubefake.Ref, o obj) {
+		o["metadata"].(obj)["finalizers"] = []any{"chaos-mesh/records"}
+		o["status"] = obj{"experiment": obj{"containerRecords": []obj{{"phase": "Not Injected", "events": []obj{{"type": "Failed", "message": "modprobe: FATAL: Module ebtables not found"}}}}}}
 	}
+	tg, _ := p.Resolve(context.Background(), k8sScenario("shop", "api"))
+	// Prazo vindo do runner (fim do bloco), mais curto que o InjectTimeout: o motivo tem que vir mesmo assim.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultHTTPAbort, DurationSeconds: 5})
+	if err == nil || !strings.Contains(err.Error(), "ebtables") || !strings.Contains(err.Error(), "WSL2") {
+		t.Fatalf("erro=%v", err)
+	}
+	waitEmpty(t, f, kubefake.Ref{GV: chaosmesh.Group, Plural: "httpchaos"})
 }
 
 func TestK8sApplyFaultWithoutChaosMesh(t *testing.T) {
@@ -245,5 +262,60 @@ func TestK8sRecover(t *testing.T) {
 	}
 	if f.Get(kubefake.Jobs, "nac", "nac-k6-x") != nil || f.Get(kubefake.Pods, "nac", "nac-k6-x-1") != nil {
 		t.Fatal("o Recover deveria apagar os Jobs do k6 e seus pods")
+	}
+}
+
+func TestK8sFaultOnDependency(t *testing.T) {
+	f, p := cluster(t)
+	f.OnCreate = injectAll
+	f.Deployment("pix", "pix-postgres", map[string]string{"app": "pix-postgres"}, 1)
+	ctx := context.Background()
+	tg, _ := p.Resolve(ctx, k8sScenario("shop", "api"))
+	dep := &scenario.Dependency{Namespace: "pix", Deployment: "pix-postgres"}
+	nc := kubefake.Ref{GV: chaosmesh.Group, Plural: "networkchaos"}
+	labelsOf := func(o obj, path ...string) string {
+		var cur any = o
+		for _, k := range path {
+			cur = cur.(map[string]any)[k]
+		}
+		return fmt.Sprint(cur.(map[string]any)["labelSelectors"].(map[string]any)["app"])
+	}
+
+	// Na dependência: o recurso fica no namespace dela e atinge os pods dela.
+	revert, err := tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultLatency, StartSeconds: 1, DurationSeconds: 5, Dependency: dep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.List(nc)
+	if len(got) != 1 || got[0]["metadata"].(map[string]any)["namespace"] != "pix" || labelsOf(got[0], "spec", "selector") != "pix-postgres" {
+		t.Fatalf("falha na dependência: %v", got)
+	}
+	_ = revert(ctx)
+
+	// Só o caminho: o recurso fica no alvo, com a dependência como target.
+	revert, err = tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultPacketLoss, StartSeconds: 9, DurationSeconds: 5, Dependency: dep, LinkOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = f.List(nc)
+	if len(got) != 1 || got[0]["metadata"].(map[string]any)["namespace"] != "shop" ||
+		labelsOf(got[0], "spec", "selector") != "api" || labelsOf(got[0], "spec", "target", "selector") != "pix-postgres" {
+		t.Fatalf("falha no caminho: %v", got)
+	}
+	_ = revert(ctx)
+
+	_, err = tg.ApplyFault(ctx, "r1", scenario.Fault{Type: scenario.FaultKillRestart, DurationSeconds: 5, Dependency: &scenario.Dependency{Namespace: "pix", Deployment: "nope"}})
+	if err == nil || !strings.Contains(err.Error(), "dependência pix/nope não existe") {
+		t.Fatalf("erro=%v", err)
+	}
+}
+
+// waitEmpty espera a limpeza em segundo plano (que não atrasa as próximas falhas) esvaziar r.
+func waitEmpty(t *testing.T, f *kubefake.Server, r kubefake.Ref) {
+	t.Helper()
+	for end := time.Now().Add(2 * time.Second); len(f.List(r)) != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("o recurso %s ficou no cluster", r.Plural)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package scenario
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,16 @@ const (
 	ParamMemBytes   = "memory-vm-bytes"     // ex.: 256m, 1g ou 80%
 	// ParamPods vale só no Kubernetes: "one" atinge um pod do Deployment, "all" atinge todos.
 	ParamPods = "pods"
+
+	// Falhas só do Kubernetes (nomes próximos aos do Chaos Mesh).
+	ParamDelay      = "delay"       // ms de atraso (IO e HTTP)
+	ParamPercent    = "percent"     // % das operações de IO atingidas
+	ParamErrno      = "errno"       // erro devolvido nas operações de IO (5 = EIO)
+	ParamVolumePath = "volume-path" // ponto de montagem do volume no container (IO)
+	ParamPath       = "path"        // arquivos (IO) ou caminho da URL (HTTP), aceita *
+	ParamPatterns   = "patterns"    // domínios que falham no DNS, separados por vírgula (vazio = todos)
+	ParamPort       = "port"        // porta HTTP dos pods (HTTP)
+	ParamMethod     = "method"      // método HTTP atingido (vazio = todos)
 )
 
 // Valores de ParamPods.
@@ -46,6 +57,22 @@ var FaultDefaults = map[FaultType]map[string]string{
 	FaultCPUStress:   {ParamCPULoad: "80", ParamCPUWorkers: "1"},
 	FaultMemStress:   {ParamMemBytes: "256m"},
 	FaultKillRestart: {},
+	FaultIOLatency:   {ParamDelay: "100", ParamPercent: "100"},
+	FaultIOFault:     {ParamErrno: "5", ParamPercent: "50"},
+	FaultDNSError:    {},
+	FaultHTTPDelay:   {ParamDelay: "500", ParamPort: "8080", ParamPath: "*"},
+	FaultHTTPAbort:   {ParamPort: "8080", ParamPath: "*"},
+}
+
+// Patterns devolve os domínios do DNS, sem espaços e vazios.
+func (f Fault) Patterns() []string {
+	var out []string
+	for _, p := range strings.Split(f.Param(ParamPatterns), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Param devolve o valor do parâmetro ou o padrão do tipo de falha.
@@ -102,7 +129,32 @@ func (f Fault) ValidateParams() error {
 			return fmt.Errorf("%s fora do intervalo", ParamMemBytes)
 		}
 		return nil
-	case FaultKillRestart:
+	case FaultKillRestart, FaultDNSError:
+		return nil
+	case FaultIOLatency, FaultIOFault:
+		if !strings.HasPrefix(f.Param(ParamVolumePath), "/") {
+			return fmt.Errorf("%s: informe o ponto de montagem do volume no container (ex.: /var/lib/postgresql/data)", ParamVolumePath)
+		}
+		if err := intIn(f, ParamPercent, 1, 100); err != nil {
+			return err
+		}
+		if f.Type == FaultIOLatency {
+			return intIn(f, ParamDelay, 1, 60000)
+		}
+		return intIn(f, ParamErrno, 1, 255)
+	case FaultHTTPDelay, FaultHTTPAbort:
+		if err := intIn(f, ParamPort, 1, 65535); err != nil {
+			return err
+		}
+		if !strings.HasPrefix(f.Param(ParamPath), "/") && f.Param(ParamPath) != "*" {
+			return fmt.Errorf("%s deve começar com / ou ser *", ParamPath)
+		}
+		if m := strings.ToUpper(f.Param(ParamMethod)); m != "" && !slices.Contains([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}, m) {
+			return fmt.Errorf("%s inválido: %q", ParamMethod, m)
+		}
+		if f.Type == FaultHTTPDelay {
+			return intIn(f, ParamDelay, 1, 60000)
+		}
 		return nil
 	default:
 		return fmt.Errorf("tipo de falha desconhecido: %q", f.Type)

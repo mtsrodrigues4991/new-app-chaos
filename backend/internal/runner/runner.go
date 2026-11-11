@@ -477,7 +477,8 @@ func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6 K6, agg 
 
 // runFaults aplica e reverte as falhas na hora marcada, uma por vez. Quando ctx acaba
 // (abort ou fim do teste), reverte a falha ativa e marca as restantes como não executadas.
-// Devolve erro se uma falha não pôde ser aplicada ou revertida.
+// Uma falha que não pôde ser aplicada fica marcada como failed e a execução segue; devolve
+// erro se uma falha não pôde ser revertida.
 func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target Target, faults []scenario.Fault, started time.Time) error {
 	at := func(sec int) time.Time { return started.Add(time.Duration(sec) * time.Second) }
 	since := func() *float64 { v := float64(time.Since(started).Milliseconds()) / 1000; return &v }
@@ -501,14 +502,19 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 		}
 		ev := store.FaultEvent{FaultID: f.ID, Type: f.Type}
 		// Aplica com contexto próprio: um abort no meio não pode deixar a falha "meio aplicada".
-		actx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		// Esperar a confirmação não passa do fim do bloco: uma falha que não entra não pode
+		// empurrar as próximas para fora do horário.
+		wait := min(time.Minute, max(10*time.Second, time.Until(at(f.End()))))
+		actx, cancel := context.WithTimeout(context.Background(), wait)
 		revert, err := target.ApplyFault(actx, runID, f)
 		cancel()
 		if err != nil {
+			// A falha não entrou (e já saiu do alvo): marca e segue com as próximas. A
+			// execução continua válida, só sem essa falha na linha do tempo.
 			ev.State, ev.Error = store.FaultFailed, err.Error()
 			save(ev)
-			skipRest(i + 1)
-			return fmt.Errorf("a falha %s em %ds não pôde ser aplicada: %w", f.Type, f.StartSeconds, err)
+			log.Printf("run %s: falha %s em %ds não aplicada: %v", runID, f.Type, f.StartSeconds, err)
+			continue
 		}
 		ev.State, ev.AppliedAt = store.FaultActive, since()
 		save(ev)
