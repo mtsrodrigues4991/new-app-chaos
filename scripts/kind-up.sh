@@ -9,6 +9,10 @@
 #   PIX_DIR=caminho       clone local do itau-case-pix (padrão: clona em .targets/)
 #   DORIGAO_DIR=caminho   pasta com svc-pedido, svc-pagamento, svc-catalogo (padrão: .targets/)
 #   ONLY_APP=1            só reconstrói e reinstala o new-app-chaos (make kind-app)
+#   OBS=1                 instala a stack de observabilidade (grafana/otel-lgtm: Prometheus, Tempo,
+#                         Loki, Pyroscope e Grafana num pod, ~1-2 GB de RAM) e instrumenta o pix-api
+#                         com os agentes OpenTelemetry e Pyroscope; a IA passa a ver JVM, traces e
+#                         profiling. Rodar de novo sem OBS=1 desliga a instrumentação.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,6 +29,7 @@ CHAOS_MESH_VERSION="${CHAOS_MESH_VERSION:-2.8.8}"
 METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-3.13.0}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.54.0}"
 BUILD_ID="$(date +%s)"
+OBS_ON=false; [[ -n "${OBS:-}" && "${OBS:-}" != 0 ]] && OBS_ON=true
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31merro:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -95,6 +100,18 @@ if [[ -z "${ONLY_APP:-}" ]]; then
     --wait --timeout 10m >/dev/null
 fi
 
+# --- observabilidade (opcional) ---
+if $OBS_ON; then
+  step "Stack de observabilidade (Grafana, Prometheus, Tempo, Loki, Pyroscope)"
+  kubectl apply -f deploy/observability/lgtm.yaml >/dev/null
+  echo "agentes Java (OpenTelemetry e Pyroscope)"
+  build new-app-chaos-java-agents:dev deploy/agents
+  load new-app-chaos-java-agents:dev
+  # Na primeira vez o nó baixa a imagem do otel-lgtm (~1 GB).
+  kubectl -n observability rollout status deploy/lgtm --timeout 10m >/dev/null \
+    || echo "aviso: a stack de observabilidade não ficou pronta; veja kubectl -n observability describe pod -l app=lgtm"
+fi
+
 # --- new-app-chaos ---
 step "Imagens do new-app-chaos"
 build new-app-chaos-backend:dev backend
@@ -111,13 +128,16 @@ if [[ -f .env ]]; then grep -E '^(ANTHROPIC_API_KEY|GITHUB_TOKEN)=.' .env > "$se
 kubectl -n "$NS" create secret generic new-app-chaos-secrets --from-env-file="$secret_env" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 [[ -s "$secret_env" ]] || echo "aviso: sem ANTHROPIC_API_KEY no .env; a análise por IA fica desativada até preencher e rodar de novo."
 helm upgrade --install new-app-chaos deploy/charts/new-app-chaos -n "$NS" \
-  --set buildId="$BUILD_ID" --set backend.k6Image="$K6_IMAGE" --wait --timeout 5m >/dev/null
+  --set buildId="$BUILD_ID" --set backend.k6Image="$K6_IMAGE" --set observability.enabled="$OBS_ON" --wait --timeout 5m >/dev/null
 
 # --- alvos ---
-target() { # target <release> <namespace>
-  kubectl create namespace "$2" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  helm upgrade --install "$1" deploy/charts/target -n "$2" -f "deploy/targets/$1.yaml" --set buildId="$BUILD_ID" >/dev/null
+target() { # target <release> <namespace> [args do helm...]
+  local rel=$1 ns=$2; shift 2
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  helm upgrade --install "$rel" deploy/charts/target -n "$ns" -f "deploy/targets/$rel.yaml" --set buildId="$BUILD_ID" "$@" >/dev/null
 }
+# Alvos Java instrumentados pelos agentes quando OBS=1.
+java_otel=(--set otel.enabled="$OBS_ON" --set otel.java="$OBS_ON" --set otel.profiling="$OBS_ON")
 
 if [[ -z "${ONLY_APP:-}" ]]; then
   for t in $TARGETS; do
@@ -135,7 +155,7 @@ if [[ -z "${ONLY_APP:-}" ]]; then
         docker image inspect postgres:16-alpine >/dev/null 2>&1 || docker pull -q postgres:16-alpine >/dev/null
         load new-app-chaos-pix-api:dev postgres:16-alpine
         target pix-postgres pix
-        target pix-api pix
+        target pix-api pix "${java_otel[@]}"
         ;;
       svc-pedido|svc-pagamento|svc-catalogo)
         step "Alvo $t (namespace dorigao)"
@@ -161,3 +181,6 @@ fi
 port="$(docker port "$CLUSTER-control-plane" 30080/tcp 2>/dev/null | head -1 | sed 's/.*://')"
 step "Pronto: http://localhost:${port:-$UI_PORT}"
 echo "Alvos (URL base no cenário): demo-api http://demo-api.demo:8080 · pix http://pix-api.pix:8080 · svc-* http://svc-pedido.dorigao:8080"
+if $OBS_ON; then
+  echo "Grafana: kubectl -n observability port-forward svc/lgtm 3001:3000  e abra http://localhost:3001"
+fi

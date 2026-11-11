@@ -154,7 +154,19 @@ export type PodLog = {
   lines: LogLine[];
 };
 export type KubeEvent = { t: number; type: string; reason: string; namespace: string; object: string; message: string; count?: number };
-export type Diagnostics = { logs: PodLog[]; events: KubeEvent[]; notes?: string[] };
+export type MetricSeries = { service: string; key: string; label: string; unit: string; points: { t: number; v: number }[] };
+export type SpanSummary = { service: string; name: string; durationMs: number; error?: boolean; detail?: string };
+export type TraceSummary = { service: string; kind: string; traceId: string; t: number; root: string; durationMs: number; spans?: SpanSummary[] };
+export type ProfileTop = { service: string; type: string; functions: { name: string; selfPct: number }[] };
+export type AppTelemetry = {
+  metrics: MetricSeries[];
+  traces: TraceSummary[];
+  profiles: ProfileTop[];
+  available?: Record<string, string[]>;
+  notes?: string[];
+  grafanaUrl?: string;
+};
+export type Diagnostics = { logs: PodLog[]; events: KubeEvent[]; notes?: string[]; app?: AppTelemetry };
 
 export type Run = {
   id: string;

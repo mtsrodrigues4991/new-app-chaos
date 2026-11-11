@@ -1,0 +1,77 @@
+# Stack de observabilidade opcional (OBS=1 ./scripts/kind-up.sh): a imagem grafana/otel-lgtm
+# junta num pod só o OpenTelemetry Collector, Prometheus, Tempo, Loki, Pyroscope e Grafana.
+# Leve para o KIND local (~1-2 GB de RAM); dados em emptyDir, somem ao recriar o pod.
+# Portas: 3000 Grafana, 4317/4318 OTLP, 9090 Prometheus, 3200 Tempo, 3100 Loki, 4040 Pyroscope.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+  namespace: observability
+spec:
+  selector:
+    app: lgtm
+  ports:
+    - { name: grafana, port: 3000, targetPort: 3000 }
+    - { name: otel-grpc, port: 4317, targetPort: 4317 }
+    - { name: otel-http, port: 4318, targetPort: 4318 }
+    - { name: prometheus, port: 9090, targetPort: 9090 }
+    - { name: tempo, port: 3200, targetPort: 3200 }
+    - { name: loki, port: 3100, targetPort: 3100 }
+    - { name: pyroscope, port: 4040, targetPort: 4040 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgtm
+  template:
+    metadata:
+      labels:
+        app: lgtm
+    spec:
+      containers:
+        - name: lgtm
+          image: grafana/otel-lgtm:0.37.0
+          env:
+            # Grafana sem login, só para o KIND local.
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "true" }
+            - { name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Admin }
+          ports:
+            - containerPort: 3000
+            - containerPort: 3100
+            - containerPort: 3200
+            - containerPort: 4040
+            - containerPort: 4317
+            - containerPort: 4318
+            - containerPort: 9090
+          readinessProbe:
+            exec:
+              command: [cat, /tmp/ready]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 768Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts:
+            - { name: tempo-data, mountPath: /data/tempo }
+            - { name: grafana-data, mountPath: /data/grafana }
+            - { name: loki-data, mountPath: /data/loki }
+            - { name: loki-storage, mountPath: /loki }
+            - { name: p8s-storage, mountPath: /data/prometheus }
+            - { name: pyroscope-storage, mountPath: /data/pyroscope }
+      volumes:
+        - { name: tempo-data, emptyDir: {} }
+        - { name: grafana-data, emptyDir: {} }
+        - { name: loki-data, emptyDir: {} }
+        - { name: loki-storage, emptyDir: {} }
+        - { name: p8s-storage, emptyDir: {} }
+        - { name: pyroscope-storage, emptyDir: {} }

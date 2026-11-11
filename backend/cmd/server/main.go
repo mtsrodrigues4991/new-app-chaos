@@ -12,6 +12,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/obs"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 )
@@ -44,6 +45,10 @@ func main() {
 	}
 
 	mgr := runner.NewManager(dk, kc, st)
+	if o := obs.FromEnv(); o != nil {
+		mgr.Obs = o
+		log.Printf("observabilidade: Prometheus %q, Tempo %q, Pyroscope %q", o.Prometheus, o.Tempo, o.Pyroscope)
+	}
 	if img := os.Getenv("K6_IMAGE"); img != "" {
 		mgr.K6Image = img
 	}
