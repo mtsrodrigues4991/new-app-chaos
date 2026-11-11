@@ -560,18 +560,30 @@ func (c *Client) Exec(ctx context.Context, id string, cmd []string, detach bool)
 	return st.ExitCode, out.String(), nil
 }
 
-// Self devolve id e imagem do container onde o backend roda (vazio se roda fora do Docker).
-func (c *Client) Self(ctx context.Context) (id, image string) {
+// Self devolve o id do container onde o backend roda e as referências da sua imagem
+// (vazio se roda fora do Docker). A primeira é o nome usado para criar o container
+// (ex.: new-app-chaos-backend); a segunda, o id. O nome vem antes porque, com o
+// image store do containerd (padrão no Docker Desktop), o id pode ser o de um índice
+// multiplataforma que /containers/create não resolve.
+func (c *Client) Self(ctx context.Context) (id string, images []string) {
 	host, err := os.Hostname()
 	if err != nil {
-		return "", ""
+		return "", nil
 	}
 	var raw struct {
-		ID    string `json:"Id"`
-		Image string `json:"Image"`
+		ID     string `json:"Id"`
+		Image  string `json:"Image"`
+		Config struct {
+			Image string `json:"Image"`
+		} `json:"Config"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(host)+"/json", nil, &raw); err != nil {
-		return "", ""
+		return "", nil
 	}
-	return raw.ID, raw.Image
+	for _, img := range []string{raw.Config.Image, raw.Image} {
+		if img != "" {
+			images = append(images, img)
+		}
+	}
+	return raw.ID, images
 }

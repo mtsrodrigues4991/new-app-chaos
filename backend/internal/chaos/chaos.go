@@ -34,8 +34,9 @@ const (
 // Engine aplica falhas em containers Docker.
 type Engine struct {
 	Docker *dockerx.Client
-	// ToolsImage tem sh, ip e tc (o próprio backend, por padrão).
-	ToolsImage string
+	// ToolsImages são referências de uma imagem com sh, ip e tc (a do próprio backend, por
+	// padrão), tentadas em ordem até uma existir no Docker.
+	ToolsImages []string
 	// StressorPath é o binário do stressor no sistema de arquivos do backend.
 	StressorPath string
 }
@@ -126,17 +127,27 @@ func StressArgs(f scenario.Fault) []string {
 
 // tc roda o script num container auxiliar que compartilha a rede do alvo.
 func (e *Engine) tc(ctx context.Context, target, script string) error {
-	if e.ToolsImage == "" {
+	if len(e.ToolsImages) == 0 {
 		return errors.New("imagem com tc indisponível: rode o backend pelo docker compose ou defina TOOLS_IMAGE")
 	}
-	id, err := e.Docker.Create(ctx, dockerx.RunSpec{
-		Image:      e.ToolsImage,
-		Entrypoint: []string{"sh", "-c"},
-		Cmd:        []string{script},
-		Network:    "container:" + target,
-		CapAdd:     []string{"NET_ADMIN"},
-		Role:       RoleTools,
-	})
+	var id string
+	var err error
+	for _, img := range e.ToolsImages {
+		id, err = e.Docker.Create(ctx, dockerx.RunSpec{
+			Image:      img,
+			Entrypoint: []string{"sh", "-c"},
+			Cmd:        []string{script},
+			Network:    "container:" + target,
+			CapAdd:     []string{"NET_ADMIN"},
+			Role:       RoleTools,
+		})
+		if !errors.Is(err, dockerx.ErrNotFound) {
+			break
+		}
+	}
+	if errors.Is(err, dockerx.ErrNotFound) {
+		return fmt.Errorf("criando o auxiliar de rede: imagem %s não encontrada no Docker (defina TOOLS_IMAGE com o nome da imagem do backend)", strings.Join(e.ToolsImages, " / "))
+	}
 	if err != nil {
 		return fmt.Errorf("criando o auxiliar de rede: %w", err)
 	}
