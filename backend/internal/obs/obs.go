@@ -91,8 +91,12 @@ func (c *Client) get(ctx context.Context, base, path string, q url.Values, out a
 	return json.Unmarshal(data, out)
 }
 
-// Collect junta métricas, traces e profiling dos serviços entre started e ended.
-func (c *Client) Collect(ctx context.Context, svcs []Service, started, ended time.Time) *store.AppTelemetry {
+// Window é o intervalo em que uma falha esteve ativa.
+type Window struct{ From, To time.Time }
+
+// Collect junta métricas, traces e profiling dos serviços entre started e ended. windows são
+// as falhas aplicadas: cada uma garante ao menos um trace lento dela, se houver.
+func (c *Client) Collect(ctx context.Context, svcs []Service, started, ended time.Time, windows []Window) *store.AppTelemetry {
 	app := &store.AppTelemetry{Metrics: []store.MetricSeries{}, Traces: []store.TraceSummary{}, Profiles: []store.ProfileTop{},
 		Available: map[string][]string{}, GrafanaURL: c.Grafana}
 	for _, s := range svcs {
@@ -100,7 +104,7 @@ func (c *Client) Collect(ctx context.Context, svcs []Service, started, ended tim
 			c.metrics(ctx, app, s, started, ended)
 		}
 		if c.Tempo != "" {
-			c.traces(ctx, app, s, started, ended)
+			c.traces(ctx, app, s, started, ended, windows)
 		}
 		if c.Pyroscope != "" {
 			c.profiles(ctx, app, s, started, ended)
@@ -125,15 +129,15 @@ type Metric struct {
 // Metrics são as séries que ajudam a explicar o comportamento numa falha.
 var Metrics = []Metric{
 	{"heap_mb", "Heap usado", "MB", `sum(jvm_memory_used_bytes{$SEL,jvm_memory_type="heap"}) / 1048576 or sum(jvm_memory_used_bytes{$SEL,area="heap"}) / 1048576`},
-	{"gc_ms_s", "Pausa de GC", "ms/s", `sum(rate(jvm_gc_duration_seconds_sum{$SEL}[15s])) * 1000 or sum(rate(jvm_gc_pause_seconds_sum{$SEL}[15s])) * 1000`},
+	{"gc_ms_s", "Pausa de GC", "ms/s", `sum(rate(jvm_gc_duration_seconds_sum{$SEL}[10s])) * 1000 or sum(rate(jvm_gc_pause_seconds_sum{$SEL}[10s])) * 1000`},
 	{"threads", "Threads da JVM", "", `sum(jvm_thread_count{$SEL}) or sum(jvm_threads_live_threads{$SEL})`},
-	{"http_rps", "Requisições recebidas", "req/s", `sum(rate(http_server_request_duration_seconds_count{$SEL}[15s])) or sum(rate(http_server_requests_seconds_count{$SEL}[15s]))`},
-	{"http_p95_ms", "p95 das requisições recebidas", "ms", `histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{$SEL}[15s]))) * 1000 or histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{$SEL}[15s]))) * 1000`},
-	{"http_5xx_s", "Respostas 5xx", "/s", `sum(rate(http_server_request_duration_seconds_count{$SEL,http_response_status_code=~"5.."}[15s])) or sum(rate(http_server_requests_seconds_count{$SEL,status=~"5.."}[15s]))`},
-	{"client_p95_ms", "p95 das chamadas HTTP de saída", "ms", `histogram_quantile(0.95, sum by (le) (rate(http_client_request_duration_seconds_bucket{$SEL}[15s]))) * 1000`},
+	{"http_rps", "Requisições recebidas", "req/s", `sum(rate(http_server_request_duration_seconds_count{$SEL}[10s])) or sum(rate(http_server_requests_seconds_count{$SEL}[10s]))`},
+	{"http_p95_ms", "p95 das requisições recebidas", "ms", `histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{$SEL}[10s]))) * 1000 or histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{$SEL}[10s]))) * 1000`},
+	{"http_5xx_s", "Respostas 5xx", "/s", `sum(rate(http_server_request_duration_seconds_count{$SEL,http_response_status_code=~"5.."}[10s])) or sum(rate(http_server_requests_seconds_count{$SEL,status=~"5.."}[10s]))`},
+	{"client_p95_ms", "p95 das chamadas HTTP de saída", "ms", `histogram_quantile(0.95, sum by (le) (rate(http_client_request_duration_seconds_bucket{$SEL}[10s]))) * 1000`},
 	{"db_used", "Conexões do pool em uso", "", `sum(db_client_connections_usage{$SEL,state="used"}) or sum(db_client_connection_count{$SEL,db_client_connection_state="used"}) or sum(hikaricp_connections_active{$SEL})`},
 	{"db_pending", "Esperando conexão do pool", "", `sum(db_client_connections_pending_requests{$SEL}) or sum(db_client_connection_pending_requests{$SEL}) or sum(hikaricp_connections_pending{$SEL})`},
-	{"db_wait_p95_ms", "p95 da espera por conexão", "ms", `histogram_quantile(0.95, sum by (le) (rate(db_client_connections_wait_time_milliseconds_bucket{$SEL}[15s]))) or histogram_quantile(0.95, sum by (le) (rate(db_client_connection_wait_time_seconds_bucket{$SEL}[15s]))) * 1000`},
+	{"db_wait_p95_ms", "p95 da espera por conexão", "ms", `histogram_quantile(0.95, sum by (le) (rate(db_client_connections_wait_time_milliseconds_bucket{$SEL}[10s]))) or histogram_quantile(0.95, sum by (le) (rate(db_client_connection_wait_time_seconds_bucket{$SEL}[10s]))) * 1000`},
 }
 
 type promResp struct {
@@ -227,7 +231,7 @@ func (c *Client) metrics(ctx context.Context, app *store.AppTelemetry, s Service
 // SlowMs é a partir de quanto um trace conta como lento.
 const SlowMs = 200
 
-func (c *Client) traces(ctx context.Context, app *store.AppTelemetry, s Service, started, ended time.Time) {
+func (c *Client) traces(ctx context.Context, app *store.AppTelemetry, s Service, started, ended time.Time, windows []Window) {
 	type hit struct {
 		TraceID           string  `json:"traceID"`
 		RootServiceName   string  `json:"rootServiceName"`
@@ -235,50 +239,68 @@ func (c *Client) traces(ctx context.Context, app *store.AppTelemetry, s Service,
 		StartTimeUnixNano string  `json:"startTimeUnixNano"`
 		DurationMs        float64 `json:"durationMs"`
 	}
-	search := func(traceQL string, limit int) ([]hit, error) {
+	search := func(traceQL string, limit int, from, to time.Time) ([]hit, error) {
 		var r struct {
 			Traces []hit `json:"traces"`
 		}
 		q := url.Values{"q": {traceQL}, "limit": {strconv.Itoa(limit)},
-			"start": {strconv.FormatInt(started.Add(-5*time.Second).Unix(), 10)}, "end": {strconv.FormatInt(ended.Add(5*time.Second).Unix(), 10)}}
+			"start": {strconv.FormatInt(from.Unix(), 10)}, "end": {strconv.FormatInt(to.Unix(), 10)}}
 		err := c.get(ctx, c.Tempo, "/api/search", q, &r)
-		return r.Traces, err
+		// Traces de menos de 1 ms (ex.: a validação do pool, sem requisição) são ruído.
+		out := r.Traces[:0]
+		for _, h := range r.Traces {
+			if h.DurationMs >= 1 {
+				out = append(out, h)
+			}
+		}
+		sort.SliceStable(out, func(i, j int) bool { return out[i].DurationMs > out[j].DurationMs })
+		return out, err
 	}
 	name := fmt.Sprintf("resource.service.name = %q", s.Name)
-	groups := []struct {
-		kind, q             string
-		limit, keep, detail int
-	}{
-		{"erro", fmt.Sprintf("{ %s && status = error }", name), 50, 5, 2},
-		{"lento", fmt.Sprintf("{ %s && duration > %dms }", name, SlowMs), 100, 5, 3},
-	}
+	slowQ := fmt.Sprintf("{ %s && duration > %dms }", name, SlowMs)
 	seen := map[string]bool{}
-	for _, g := range groups {
-		hits, err := search(g.q, g.limit)
+	add := func(h hit, kind string, detail bool) {
+		seen[h.TraceID] = true
+		ns, _ := strconv.ParseInt(h.StartTimeUnixNano, 10, 64)
+		ts := store.TraceSummary{Service: s.String(), Kind: kind, TraceID: h.TraceID, Root: h.RootTraceName, DurationMs: round(h.DurationMs, 1),
+			T: round(time.Unix(0, ns).Sub(started).Seconds(), 1)}
+		if h.RootServiceName != "" && h.RootServiceName != s.Name {
+			ts.Root = h.RootServiceName + ": " + h.RootTraceName
+		}
+		if detail {
+			ts.Spans, _ = c.trace(ctx, h.TraceID)
+		}
+		app.Traces = append(app.Traces, ts)
+	}
+	from, to := started.Add(-5*time.Second), ended.Add(5*time.Second)
+	pick := func(q string, limit, keep, detail int, kind string, f, t time.Time) bool {
+		hits, err := search(q, limit, f, t)
 		if err != nil {
 			app.Notes = append(app.Notes, fmt.Sprintf("traces de %s: %v", s, err))
-			return
+			return false
 		}
-		sort.SliceStable(hits, func(i, j int) bool { return hits[i].DurationMs > hits[j].DurationMs })
 		n := 0
 		for _, h := range hits {
-			if seen[h.TraceID] || n >= g.keep {
+			if seen[h.TraceID] || n >= keep {
 				continue
 			}
-			seen[h.TraceID] = true
-			ns, _ := strconv.ParseInt(h.StartTimeUnixNano, 10, 64)
-			ts := store.TraceSummary{Service: s.String(), Kind: g.kind, TraceID: h.TraceID, Root: h.RootTraceName, DurationMs: round(h.DurationMs, 1),
-				T: round(time.Unix(0, ns).Sub(started).Seconds(), 1)}
-			if h.RootServiceName != "" && h.RootServiceName != s.Name {
-				ts.Root = h.RootServiceName + ": " + h.RootTraceName
-			}
-			if n < g.detail {
-				ts.Spans, _ = c.trace(ctx, h.TraceID)
-			}
-			app.Traces = append(app.Traces, ts)
+			add(h, kind, n < detail)
 			n++
 		}
+		return true
 	}
+	// Os com erro, depois pelo menos um lento de cada falha (os mais lentos da execução podem
+	// ser todos de uma falha só), depois os mais lentos no geral.
+	if !pick(fmt.Sprintf("{ %s && status = error }", name), 50, 5, 2, "erro", from, to) {
+		return
+	}
+	for _, w := range windows {
+		if !pick(slowQ, 50, 1, 1, "lento", w.From, w.To.Add(5*time.Second)) {
+			return
+		}
+	}
+	pick(slowQ, 100, 3, 2, "lento", from, to)
+	sort.SliceStable(app.Traces, func(i, j int) bool { return app.Traces[i].T < app.Traces[j].T })
 }
 
 type kv struct {
@@ -430,21 +452,57 @@ func (c *Client) profiles(ctx context.Context, app *store.AppTelemetry, s Servic
 	}
 }
 
+// agentFrame diz se a função é do próprio agente de observabilidade (OpenTelemetry,
+// Pyroscope/async-profiler): o custo dele não é da aplicação.
+func agentFrame(name string) bool {
+	for _, p := range []string{"io/opentelemetry/", "io.opentelemetry.", "io/pyroscope/", "io.pyroscope.", "one/profiler/", "one.profiler."} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // TopSelf soma o tempo próprio (self) de cada função num flamebearer do Pyroscope. Cada nível
-// tem grupos de 4 números: deslocamento, total, self e índice do nome.
+// tem grupos de 4 números: deslocamento (relativo ao fim do nó anterior do nível), total, self
+// e índice do nome. Nós abaixo de uma função do agente (e o próprio agente) ficam de fora; a
+// porcentagem continua sobre o total da execução.
 func TopSelf(names []string, levels [][]int64, total int64, n int) []store.ProfileEntry {
 	if total <= 0 {
 		return nil
 	}
+	type node struct {
+		x, end int64
+		agent  bool
+	}
 	self := map[string]int64{}
+	var prev []node
 	for _, lv := range levels {
+		var cur []node
+		var x int64
+		p := 0
 		for i := 0; i+3 < len(lv); i += 4 {
+			x += lv[i]
+			nd := node{x: x, end: x + lv[i+1]}
 			idx := lv[i+3]
-			if idx < 0 || int(idx) >= len(names) || lv[i+2] == 0 {
-				continue
+			name := ""
+			if idx >= 0 && int(idx) < len(names) {
+				name = names[idx]
 			}
-			self[names[idx]] += lv[i+2]
+			for p < len(prev) && prev[p].end <= nd.x {
+				p++
+			}
+			if p < len(prev) && prev[p].x <= nd.x && prev[p].agent {
+				nd.agent = true
+			}
+			nd.agent = nd.agent || agentFrame(name)
+			if !nd.agent && name != "" && lv[i+2] > 0 {
+				self[name] += lv[i+2]
+			}
+			cur = append(cur, nd)
+			x = nd.end
 		}
+		prev = cur
 	}
 	out := make([]store.ProfileEntry, 0, len(self))
 	for name, v := range self {

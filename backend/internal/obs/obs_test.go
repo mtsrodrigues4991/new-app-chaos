@@ -44,7 +44,14 @@ func TestCollect(t *testing.T) {
 		}
 		ns := fmt.Sprint(started.Add(21 * time.Second).UnixNano())
 		if strings.Contains(q, "status = error") {
-			_ = json.NewEncoder(w).Encode(map[string]any{"traces": []any{map[string]any{"traceID": "e1", "rootServiceName": "pix-api", "rootTraceName": "GET /api/v1/pix-keys/{id}", "startTimeUnixNano": ns, "durationMs": 3000}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": []any{
+				map[string]any{"traceID": "n0", "rootServiceName": "pix-api", "rootTraceName": "pixdb", "startTimeUnixNano": ns}, // ruído: 0 ms
+				map[string]any{"traceID": "e1", "rootServiceName": "pix-api", "rootTraceName": "GET /api/v1/pix-keys/{id}", "startTimeUnixNano": ns, "durationMs": 3000}}})
+			return
+		}
+		if st := r.URL.Query().Get("start"); st >= fmt.Sprint(started.Add(50*time.Second).Unix()) { // janela da 2ª falha
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": []any{map[string]any{"traceID": "w2", "rootServiceName": "pix-api", "rootTraceName": "GET",
+				"startTimeUnixNano": fmt.Sprint(started.Add(56 * time.Second).UnixNano()), "durationMs": 700}}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"traces": []any{
@@ -74,7 +81,8 @@ func TestCollect(t *testing.T) {
 	defer srv.Close()
 
 	c := &Client{Prometheus: srv.URL, Tempo: srv.URL, Pyroscope: srv.URL, Grafana: "http://localhost:3001"}
-	app := c.Collect(context.Background(), []Service{{"pix", "pix-api"}, {"pix", "nada"}}, started, ended)
+	windows := []Window{{started.Add(20 * time.Second), started.Add(40 * time.Second)}, {started.Add(55 * time.Second), started.Add(70 * time.Second)}}
+	app := c.Collect(context.Background(), []Service{{"pix", "pix-api"}, {"pix", "nada"}}, started, ended, windows)
 
 	if len(app.Metrics) != 1 || app.Metrics[0].Key != "heap_mb" || len(app.Metrics[0].Points) != 1 || app.Metrics[0].Points[0].T != 5 || app.Metrics[0].Points[0].V != 100 {
 		t.Fatalf("métricas=%+v", app.Metrics)
@@ -85,7 +93,9 @@ func TestCollect(t *testing.T) {
 	if !strings.Contains(strings.Join(app.Notes, "|"), "pix/nada não mandou métricas") {
 		t.Fatalf("notes=%v", app.Notes)
 	}
-	if len(app.Traces) != 2 || app.Traces[0].Kind != "erro" || app.Traces[0].T != 21 || app.Traces[1].TraceID != "s1" || app.Traces[1].Kind != "lento" {
+	// e1 com erro (o n0 de 0 ms é ruído), s1 lento da 1ª falha, w2 lento da 2ª, em ordem de t.
+	if len(app.Traces) != 3 || app.Traces[0].TraceID != "e1" || app.Traces[0].Kind != "erro" || app.Traces[0].T != 21 ||
+		app.Traces[1].TraceID != "s1" || app.Traces[1].Kind != "lento" || app.Traces[2].TraceID != "w2" || app.Traces[2].T != 56 {
 		t.Fatalf("traces=%+v", app.Traces)
 	}
 	sp := app.Traces[0].Spans
@@ -99,5 +109,15 @@ func TestCollect(t *testing.T) {
 		if strings.Contains(q, "$SEL") {
 			t.Fatalf("seletor não substituído: %s", q)
 		}
+	}
+}
+
+func TestTopSelfSkipsAgent(t *testing.T) {
+	// total 100: app (self 50) e o exportador do agente (self 10) com musl embaixo (self 40).
+	names := []string{"total", "com/pix/App.run", "io/opentelemetry/exporter/Exporter.export", "musl_memcpy"}
+	levels := [][]int64{{0, 100, 0, 0}, {0, 50, 50, 1, 0, 50, 10, 2}, {50, 40, 40, 3}}
+	top := TopSelf(names, levels, 100, 10)
+	if len(top) != 1 || top[0].Name != "com/pix/App.run" || top[0].SelfPct != 50 {
+		t.Fatalf("top=%+v", top)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -438,7 +439,7 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 		diag := collector.Diagnostics(dctx, started)
 		cancel()
 		if m.Obs != nil && sc.Target.EffectivePlatform() == scenario.PlatformKubernetes {
-			diag.App = m.appTelemetry(sc, started)
+			diag.App = m.appTelemetry(run.ID, sc, started)
 		}
 		if err := m.Store.SaveDiagnostics(ctx, run.ID, diag); err != nil {
 			log.Printf("run %s: salvando logs e eventos: %v", run.ID, err)
@@ -465,7 +466,7 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 
 // appTelemetry lê na stack de observabilidade as métricas, traces e profiling do alvo e das
 // dependências usadas nas falhas.
-func (m *Manager) appTelemetry(sc scenario.Scenario, started time.Time) *store.AppTelemetry {
+func (m *Manager) appTelemetry(runID string, sc scenario.Scenario, started time.Time) *store.AppTelemetry {
 	time.Sleep(m.ObsSettle) // as métricas chegam a cada 5 s e o profiling a cada 10 s
 	svcs := []obs.Service{{Namespace: sc.Target.Namespace, Name: sc.Target.Deployment}}
 	seen := map[string]bool{svcs[0].String(): true}
@@ -478,7 +479,21 @@ func (m *Manager) appTelemetry(sc scenario.Scenario, started time.Time) *store.A
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	return m.Obs.Collect(ctx, svcs, started, time.Now())
+	var windows []obs.Window
+	evs, _ := m.Store.FaultEvents(ctx, runID)
+	for _, ev := range evs {
+		if ev.AppliedAt == nil {
+			continue
+		}
+		w := obs.Window{From: started.Add(time.Duration(*ev.AppliedAt * float64(time.Second)))}
+		w.To = time.Now()
+		if ev.RevertedAt != nil {
+			w.To = started.Add(time.Duration(*ev.RevertedAt * float64(time.Second)))
+		}
+		windows = append(windows, w)
+	}
+	sort.Slice(windows, func(i, j int) bool { return windows[i].From.Before(windows[j].From) })
+	return m.Obs.Collect(ctx, svcs, started, time.Now(), windows)
 }
 
 type k6Exit struct {

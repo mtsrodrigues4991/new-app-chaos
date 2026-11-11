@@ -151,7 +151,9 @@ const tooltipStyle = {
 const serviceColors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 
 // Telemetria da aplicação vinda da stack de observabilidade (OBS=1): métricas, traces e profiling.
-function AppView({ app, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
+function AppView({ app: raw, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
+  // Listas vazias podem vir como null do backend.
+  const app = { ...raw, metrics: raw.metrics ?? [], traces: raw.traces ?? [], profiles: raw.profiles ?? [] };
   const charts = useMemo(() => {
     const byKey = new Map<string, { label: string; unit: string; services: string[]; rows: Map<number, Record<string, number>> }>();
     for (const m of app.metrics) {
@@ -165,7 +167,7 @@ function AppView({ app, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
       }
     }
     return [...byKey.entries()].map(([key, c]) => ({ key, ...c, data: [...c.rows.values()].sort((a, b) => a.t - b.t) }));
-  }, [app]);
+  }, [raw]);
   const empty = charts.length === 0 && app.traces.length === 0 && app.profiles.length === 0;
   return (
     <section className="diagnostics no-print">
@@ -186,6 +188,12 @@ function AppView({ app, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
         </p>
       ))}
       {empty && <p className="muted">Nada chegou da aplicação nesta execução.</p>}
+      {charts.length > 0 && (
+        <p className="muted small">
+          As taxas e o p95 aparecem uns 5 a 15 s depois do que a sonda mostra: o tempo de uma requisição só é registrado quando ela termina, e a taxa
+          é calculada numa janela de 10 s. A faixa cinza é a falha.
+        </p>
+      )}
       {charts.length > 0 && (
         <div className="charts">
           {charts.map((c) => (
@@ -216,7 +224,7 @@ function AppView({ app, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
       {app.traces.length > 0 && (
         <details open>
           <summary>Traces com erro e lentos ({app.traces.length})</summary>
-          <table className="small">
+          <table className="small traces">
             <thead>
               <tr>
                 <th>t</th>
@@ -255,7 +263,7 @@ function AppView({ app, spans }: { app: AppTelemetry; spans: FaultSpan[] }) {
       )}
       {app.profiles.length > 0 && (
         <details>
-          <summary>Profiling: funções que mais consumiram na execução</summary>
+          <summary>Profiling: funções que mais consumiram na execução (sem o próprio agente)</summary>
           {app.profiles.map((p) => (
             <div key={`${p.service}-${p.type}`}>
               <h3 className="small">
