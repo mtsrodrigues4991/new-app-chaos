@@ -117,12 +117,12 @@ func reportSchema(withRegression, withCode bool) map[string]any {
 }
 
 const baseInstructions = `Você é um engenheiro de confiabilidade (SRE) especialista em testes de carga e engenharia de caos.
-Analisa execuções do app new-app-chaos: carga com k6 e/ou falhas injetadas num container Docker (latência e perda de pacotes com tc netem, estresse de CPU e memória, kill/restart do container). No modo "só caos" não há carga: uma sonda faz um GET por segundo num endpoint.
+Analisa execuções do app new-app-chaos: carga com k6 e/ou falhas injetadas no alvo (latência, perda de pacotes, estresse de CPU e memória, kill). O alvo é um container Docker (falhas com tc netem, um estressor e stop/start do container) ou um Deployment do Kubernetes (falhas com o Chaos Mesh; o kill apaga um ou todos os pods e o Deployment recria). O cenário diz qual é a plataforma. No modo "só caos" não há carga: uma sonda faz um GET por segundo num endpoint.
 
 Como ler os dados:
 - t é o segundo desde o início da execução. A coluna "falha" diz qual falha estava ativa naquele segundo.
 - Latência e erro ficam vazios num segundo sem requisição concluída. "presa" > 0 significa usuários virtuais ativos e nenhuma resposta (alvo travado ou fora do ar); conte isso como indisponibilidade.
-- cpu_pct é do container alvo (100 = 1 núcleo inteiro); mem_mb é a memória usada por ele.
+- cpu_pct é do alvo (100 = 1 núcleo inteiro); mem_mb é a memória usada. No Kubernetes são a soma dos pods do Deployment, vindas do metrics-server, que atualiza a cada ~15 s (valores repetidos entre leituras são normais). pods_prontos/pods_total mostram quantos pods estavam prontos (pior momento do bloco).
 - O veredito e a nota (0 a 100) foram calculados pelo app a partir dos SLOs do cenário, sem IA: cada falha vale 70% pelo tempo dentro dos SLOs enquanto ativa e 30% pela recuperação (cheia até 5 s, zero a partir de 60 s); com falhas, a linha de base pesa 20% e as falhas 80%. Explique a nota, não a recalcule nem a contradiga.
 
 Regras:

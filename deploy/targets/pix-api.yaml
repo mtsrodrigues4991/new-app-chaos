@@ -1,0 +1,14 @@
+# itau-case-pix (Spring Boot): URL no cluster http://pix-api.pix:8080
+image: new-app-chaos-pix-api:dev
+replicas: 2
+port: 8080
+env:
+  - { name: POSTGRES_URL, value: "jdbc:postgresql://pix-postgres:5432/pixdb" }
+  - { name: POSTGRES_USER, value: pix }
+  - { name: POSTGRES_PASSWORD, value: pix }
+  - { name: JAVA_OPTS, value: "-XX:MaxRAMPercentage=75" }
+# Sem actuator no projeto: prontidão por TCP na porta.
+probe: { path: "", initialDelaySeconds: 15 }
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { cpu: "1", memory: 768Mi }

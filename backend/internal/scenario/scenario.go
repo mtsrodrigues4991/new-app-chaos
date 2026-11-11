@@ -16,10 +16,37 @@ const (
 	ModeBoth  Mode = "both"  // carga + caos na mesma linha do tempo
 )
 
-// Target é a aplicação cuja API será testada. No MVP, um container Docker.
+// Platform é onde o alvo roda.
+type Platform string
+
+const (
+	PlatformDocker     Platform = "docker"     // um container no Docker local (padrão)
+	PlatformKubernetes Platform = "kubernetes" // um Deployment num cluster Kubernetes
+)
+
+// Target é a aplicação cuja API será testada: um container Docker ou um Deployment do Kubernetes.
 type Target struct {
-	Container string `json:"container"` // nome do container no Docker
-	BaseURL   string `json:"baseUrl"`   // ex.: http://demo-api:8080 (visto de dentro da rede do Docker)
+	Platform   Platform `json:"platform,omitempty"`   // vazio = docker (cenários antigos)
+	Container  string   `json:"container,omitempty"`  // Docker: nome do container
+	Namespace  string   `json:"namespace,omitempty"`  // Kubernetes: namespace do Deployment
+	Deployment string   `json:"deployment,omitempty"` // Kubernetes: nome do Deployment
+	BaseURL    string   `json:"baseUrl"`              // ex.: http://demo-api:8080 (visto de dentro da rede do Docker ou do cluster)
+}
+
+// EffectivePlatform trata cenários antigos (sem plataforma) como Docker.
+func (t Target) EffectivePlatform() Platform {
+	if t.Platform == "" {
+		return PlatformDocker
+	}
+	return t.Platform
+}
+
+// Name é como o alvo aparece para o usuário: o container ou namespace/deployment.
+func (t Target) Name() string {
+	if t.EffectivePlatform() == PlatformKubernetes {
+		return t.Namespace + "/" + t.Deployment
+	}
+	return t.Container
 }
 
 // Endpoint é uma requisição que o k6 vai disparar.
@@ -150,8 +177,17 @@ func (s Scenario) Validate() error {
 	if strings.TrimSpace(s.Name) == "" {
 		errs = append(errs, "nome é obrigatório")
 	}
-	if s.Target.Container == "" {
-		errs = append(errs, "escolha o container alvo")
+	switch s.Target.EffectivePlatform() {
+	case PlatformDocker:
+		if s.Target.Container == "" {
+			errs = append(errs, "escolha o container alvo")
+		}
+	case PlatformKubernetes:
+		if s.Target.Namespace == "" || s.Target.Deployment == "" {
+			errs = append(errs, "escolha o Deployment alvo (namespace e nome)")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("plataforma desconhecida: %q", s.Target.Platform))
 	}
 	if !strings.HasPrefix(s.Target.BaseURL, "http://") && !strings.HasPrefix(s.Target.BaseURL, "https://") {
 		errs = append(errs, "URL base deve começar com http:// ou https://")
@@ -207,6 +243,13 @@ func (s Scenario) Validate() error {
 			errs = append(errs, "adicione pelo menos uma falha na linha do tempo")
 		}
 		errs = append(errs, validateFaults(s.Faults, s.Profile.DurationSeconds)...)
+		if s.Target.EffectivePlatform() != PlatformKubernetes {
+			for _, f := range s.Faults {
+				if f.Params[ParamPods] != "" {
+					errs = append(errs, fmt.Sprintf("falha %s em %ds: \"pods\" só vale para alvos no Kubernetes", f.Type, f.StartSeconds))
+				}
+			}
+		}
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))

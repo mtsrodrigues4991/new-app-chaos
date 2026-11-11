@@ -1,0 +1,5 @@
+# examples/demo-api: URL no cluster http://demo-api.demo:8080
+image: new-app-chaos-demo-api:dev
+replicas: 2
+port: 8080
+probe: { path: /health }

@@ -162,12 +162,10 @@ func Series(d RunData, maxRows int) string {
 	if len(ws) == 0 {
 		return "(sem métricas)"
 	}
-	hasLoad, hasProbe := d.Run.Scenario.HasLoad(), false
+	hasLoad, hasProbe, hasPods := d.Run.Scenario.HasLoad(), false, false
 	for _, w := range ws {
-		if w.Probe != nil {
-			hasProbe = true
-			break
-		}
+		hasProbe = hasProbe || w.Probe != nil
+		hasPods = hasPods || w.Pods != nil
 	}
 	step := 1
 	if len(ws) > maxRows {
@@ -186,6 +184,9 @@ func Series(d RunData, maxRows int) string {
 		cols = append(cols, "sonda_ms", "sonda_status", "sonda_erro")
 	}
 	cols = append(cols, "cpu_pct", "mem_mb")
+	if hasPods {
+		cols = append(cols, "pods_prontos", "pods_total")
+	}
 	b.WriteString(strings.Join(cols, ",") + "\n")
 	for i := 0; i < len(ws); i += step {
 		grp := ws[i:min(i+step, len(ws))]
@@ -195,6 +196,7 @@ func Series(d RunData, maxRows int) string {
 		var p50, p95, p99 *float64
 		var cpu, mem float64
 		var probe *load.Probe
+		var pods *load.PodCount // pior momento do bloco: menos pods prontos
 		faults := map[string]bool{}
 		for _, w := range grp {
 			rps += w.RPS
@@ -217,6 +219,10 @@ func Series(d RunData, maxRows int) string {
 			if w.Probe != nil && (probe == nil || !w.Probe.OK || w.Probe.Ms > probe.Ms) {
 				p := *w.Probe
 				probe = &p
+			}
+			if w.Pods != nil && (pods == nil || w.Pods.Ready < pods.Ready) {
+				pc := *w.Pods
+				pods = &pc
 			}
 			if f := activeFault(d.Events, w.T, end); f != "" {
 				faults[f] = true
@@ -248,6 +254,13 @@ func Series(d RunData, maxRows int) string {
 			}
 		}
 		row = append(row, trimFloat(cpu), trimFloat(mem))
+		if hasPods {
+			if pods != nil {
+				row = append(row, fmt.Sprint(pods.Ready), fmt.Sprint(pods.Total))
+			} else {
+				row = append(row, "", "")
+			}
+		}
 		b.WriteString(strings.Join(row, ",") + "\n")
 	}
 	return b.String()
@@ -266,6 +279,7 @@ func Describe(title string, d RunData, maxRows int) string {
 	r := d.Run
 	fmt.Fprintf(&b, "## %s\n\n", title)
 	fmt.Fprintf(&b, "- id: %s\n- cenário: %s\n- modo: %s\n- status: %s\n", r.ID, r.ScenarioName, r.Scenario.EffectiveMode(), r.Status)
+	fmt.Fprintf(&b, "- alvo: %s (%s)\n", r.Scenario.Target.Name(), r.Scenario.Target.EffectivePlatform())
 	if r.Error != "" {
 		fmt.Fprintf(&b, "- erro da execução: %s\n", r.Error)
 	}

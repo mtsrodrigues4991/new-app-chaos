@@ -1,0 +1,29 @@
+# Imagens construídas localmente e carregadas no KIND (kind load docker-image).
+backend:
+  image: new-app-chaos-backend:dev
+  pullPolicy: IfNotPresent
+  # Imagem do k6 usada nos Jobs de carga.
+  k6Image: grafana/k6:0.54.0  # mesma versão do modo Docker (runner.DefaultK6Image)
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  # Banco SQLite (cenários, execuções, métricas).
+  storage:
+    size: 1Gi
+    storageClass: ""   # vazio = padrão do cluster (no KIND, "standard")
+
+frontend:
+  image: new-app-chaos-frontend:dev
+  pullPolicy: IfNotPresent
+  # Porta do nó; o KIND mapeia para localhost:3000 (deploy/kind/cluster.yaml).
+  nodePort: 30080
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# Secret com ANTHROPIC_API_KEY e GITHUB_TOKEN (opcionais). O scripts/kind-up.sh cria a
+# partir do .env; o chart só referencia, para a chave nunca passar pelo values.
+secretName: new-app-chaos-secrets
+
+# Muda a cada make kind-up para os pods pegarem a imagem recém-carregada (mesma tag).
+buildId: ""

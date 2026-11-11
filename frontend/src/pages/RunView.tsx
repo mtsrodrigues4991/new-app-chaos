@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, Verdict, Window } from '../api';
+import { api, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, targetName, targetPlatform, Verdict, Window } from '../api';
 import AIPanel from '../components/AIPanel';
 import { faultMeta, faultSummary } from '../faults';
 import { modeLabel, profileLabel } from './ScenarioEditor';
@@ -170,7 +170,7 @@ export default function RunView({ id }: { id: string }) {
         )}
       </div>
       <p className="muted">
-        {modeLabel[mode]} · {run.scenario.target.baseUrl}
+        {modeLabel[mode]} · {targetName(run.scenario.target)} · {run.scenario.target.baseUrl}
         {mode === 'chaos' ? ` · sonda ${run.scenario.probePath}` : ` · ${profileLabel[p.type]}, ${p.vus} VUs`} · {p.durationSeconds} s · iniciada em{' '}
         {new Date(run.createdAt).toLocaleString('pt-BR')} · duração {duration(run)} ·{' '}
         <a className="no-print" href={`#/cenarios/${run.scenarioId}`}>editar cenário</a>
@@ -181,7 +181,7 @@ export default function RunView({ id }: { id: string }) {
       {mode === 'chaos' ? <ProbeSummary windows={run.windows} /> : <Summary windows={run.windows} />}
       {run.verdict && <VerdictPanel run={run} onReference={(referenceRunId) => setRun({ ...run, referenceRunId })} />}
       {bs.length > 0 && <FaultList bands={bs} verdict={run.verdict} />}
-      <Charts windows={run.windows} bands={bs} chaosOnly={mode === 'chaos'} duration={p.durationSeconds} />
+      <Charts windows={run.windows} bands={bs} chaosOnly={mode === 'chaos'} duration={p.durationSeconds} k8s={targetPlatform(run.scenario.target) === 'kubernetes'} />
       {run.verdict && run.windows.length > 0 && <AIPanel run={run} onReport={(analysis) => setRun({ ...run, analysis })} />}
     </section>
   );
@@ -436,7 +436,7 @@ function stalls(windows: Window[]): [number, number][] {
   return out;
 }
 
-function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; bands: Band[]; chaosOnly: boolean; duration: number }) {
+function Charts({ windows, bands, chaosOnly, duration, k8s }: { windows: Window[]; bands: Band[]; chaosOnly: boolean; duration: number; k8s: boolean }) {
   if (windows.length === 0) return <p className="muted">Aguardando as primeiras métricas…</p>;
   const data = windows.map((w) => ({
     ...w,
@@ -445,7 +445,10 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
     probeOk: w.probe?.ok ? 1 : 0,
     probeFail: w.probe && !w.probe.ok ? 1 : 0,
     probeInfo: w.probe ? (w.probe.ok ? `${w.probe.status}` : w.probe.error || `${w.probe.status}`) : '',
+    podsReady: w.pods?.ready ?? null,
+    podsTotal: w.pods?.total ?? null,
   }));
+  const target = k8s ? 'dos pods do Deployment' : 'do container alvo';
   const last = windows[windows.length - 1].t;
   const common = { data, syncId: 'run', margin: { top: 8, right: 16, bottom: 0, left: 0 } };
   const x = <XAxis dataKey="t" type="number" domain={[0, Math.max(duration, last)]} unit=" s" {...axis} />;
@@ -494,7 +497,7 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
   );
   const resources = (
     <>
-      <ChartCard title="CPU do container alvo (%, 100 = 1 núcleo)">
+      <ChartCard title={`CPU ${target} (%, 100 = 1 núcleo)`}>
         <LineChart {...common}>
           {grid}
           {x}
@@ -504,7 +507,7 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
           {line('cpu', 'CPU', 'var(--series-1)', '%')}
         </LineChart>
       </ChartCard>
-      <ChartCard title="Memória do container alvo (MB)">
+      <ChartCard title={`Memória ${target} (MB)`}>
         <LineChart {...common}>
           {grid}
           {x}
@@ -514,6 +517,20 @@ function Charts({ windows, bands, chaosOnly, duration }: { windows: Window[]; ba
           {line('memMb', 'Memória', 'var(--series-1)', ' MB')}
         </LineChart>
       </ChartCard>
+      {k8s && (
+        <ChartCard title="Pods do Deployment" wide height={160}>
+          <LineChart {...common}>
+            {grid}
+            {x}
+            {areas()}
+            <YAxis width={48} allowDecimals={false} domain={[0, 'dataMax + 1']} {...axis} />
+            <Tooltip {...tooltipStyle} />
+            <Legend verticalAlign="top" align="right" height={24} />
+            <Line type="stepAfter" dataKey="podsTotal" name="Existentes" stroke="var(--status-neutral)" strokeWidth={2} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            <Line type="stepAfter" dataKey="podsReady" name="Prontos" stroke="var(--series-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ChartCard>
+      )}
     </>
   );
 

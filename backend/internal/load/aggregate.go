@@ -29,6 +29,14 @@ type Window struct {
 	MemMB   float64 `json:"memMb"` // memória do container alvo
 	// Probe é o resultado da sonda (modo só caos): uma requisição por segundo.
 	Probe *Probe `json:"probe,omitempty"`
+	// Pods são as réplicas do alvo no Kubernetes (nulo no Docker).
+	Pods *PodCount `json:"pods,omitempty"`
+}
+
+// PodCount são os pods do Deployment alvo num segundo.
+type PodCount struct {
+	Ready int `json:"ready"` // prontos para receber tráfego
+	Total int `json:"total"` // existentes (inclui os que estão subindo ou morrendo)
 }
 
 // Probe é uma requisição de sondagem ao endpoint escolhido.
@@ -96,6 +104,12 @@ func (a *Aggregator) AddSnapshot(s *Snapshot) {
 func (a *Aggregator) AddStats(ts time.Time, cpu, memMB float64) {
 	b := a.bucket(int64(ts.Sub(a.start) / time.Second))
 	b.w.CPU, b.w.MemMB, b.hasStats = round1(cpu), round1(memMB), true
+}
+
+// AddPods registra quantos pods do alvo existiam e estavam prontos no instante ts.
+func (a *Aggregator) AddPods(ts time.Time, ready, total int) {
+	b := a.bucket(int64(ts.Sub(a.start) / time.Second))
+	b.w.Pods = &PodCount{Ready: ready, Total: total}
 }
 
 // AddProbe registra a sonda disparada no instante ts.

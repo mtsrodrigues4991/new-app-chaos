@@ -1,0 +1,5 @@
+apiVersion: v2
+name: target
+description: Aplicação alvo genérica (Deployment + Service) para testar com o new-app-chaos.
+type: application
+version: 0.1.0

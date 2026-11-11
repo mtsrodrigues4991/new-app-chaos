@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Container, defaultSLO, Endpoint, Fault, FaultType, Mode, ProfileType, Scenario, SLO, profileStages } from '../api';
+import { api, Container, defaultSLO, DeploymentInfo, Endpoint, Fault, FaultType, Health, Mode, Platform, ProfileType, Scenario, SLO, profileStages, targetPlatform } from '../api';
 import Timeline, { freeSlot } from '../components/Timeline';
 import { faultMeta, faultTypes, newFaultId } from '../faults';
 import { go, query } from '../router';
@@ -76,7 +76,9 @@ function suggestedUrl(c: Container): string {
 
 export default function ScenarioEditor({ id }: { id?: string }) {
   const [draft, setDraft] = useState<Draft>(empty);
+  const [health, setHealth] = useState<Health | null>(null);
   const [containers, setContainers] = useState<Container[]>([]);
+  const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -84,13 +86,33 @@ export default function ScenarioEditor({ id }: { id?: string }) {
 
   useEffect(() => {
     api
-      .containers()
-      .then((cs) => {
-        setContainers(cs);
-        const pre = query('container');
-        if (!id && pre) {
-          const c = cs.find((x) => x.name === pre);
-          if (c) setDraft((d) => ({ ...d, name: d.name || `Carga em ${c.service || c.name}`, target: { container: c.name, baseUrl: suggestedUrl(c) } }));
+      .health()
+      .then(async (h) => {
+        setHealth(h);
+        // Cenário novo no cluster: começa como Kubernetes.
+        if (!id && h.kubernetes && !h.docker) setDraft((d) => ({ ...d, target: { platform: 'kubernetes', baseUrl: '' } }));
+        if (h.docker) {
+          const cs = await api.containers();
+          setContainers(cs);
+          const pre = query('container');
+          if (!id && pre) {
+            const c = cs.find((x) => x.name === pre);
+            if (c) setDraft((d) => ({ ...d, name: d.name || `Carga em ${c.service || c.name}`, target: { container: c.name, baseUrl: suggestedUrl(c) } }));
+          }
+        }
+        if (h.kubernetes) {
+          const ds = await api.deployments();
+          setDeployments(ds);
+          const pre = query('deployment');
+          if (!id && pre) {
+            const d = ds.find((x) => `${x.namespace}/${x.name}` === pre);
+            if (d)
+              setDraft((dr) => ({
+                ...dr,
+                name: dr.name || `Carga em ${d.name}`,
+                target: { platform: 'kubernetes', namespace: d.namespace, deployment: d.name, baseUrl: d.urls[0] ?? '' },
+              }));
+          }
         }
       })
       .catch((e: Error) => setError(e.message));
@@ -110,6 +132,21 @@ export default function ScenarioEditor({ id }: { id?: string }) {
     const c = containers.find((x) => x.name === name);
     set({ target: { container: name, baseUrl: c ? suggestedUrl(c) : draft.target.baseUrl } });
   };
+
+  const pickDeployment = (key: string) => {
+    const d = deployments.find((x) => `${x.namespace}/${x.name}` === key);
+    const [namespace, deployment] = key.split('/');
+    set({ target: { platform: 'kubernetes', namespace, deployment, baseUrl: d?.urls[0] ?? draft.target.baseUrl } });
+  };
+
+  const platform: Platform = targetPlatform(draft.target);
+  const k8s = platform === 'kubernetes';
+  const setPlatform = (p: Platform) => {
+    if (p === platform) return;
+    set({ target: p === 'kubernetes' ? { platform: p, baseUrl: '' } : { container: '', baseUrl: '' } });
+  };
+  const depKey = draft.target.namespace && draft.target.deployment ? `${draft.target.namespace}/${draft.target.deployment}` : '';
+  const urlOptions = k8s ? deployments.find((d) => `${d.namespace}/${d.name}` === depKey)?.urls ?? [] : [];
 
   const preview = useMemo(() => {
     const pts = [{ t: 0, vus: 0 }];
@@ -160,6 +197,8 @@ export default function ScenarioEditor({ id }: { id?: string }) {
   };
 
   const known = containers.some((c) => c.name === draft.target.container);
+  const knownDep = deployments.some((d) => `${d.namespace}/${d.name}` === depKey);
+  const bothPlatforms = !!health?.docker && !!health?.kubernetes;
 
   return (
     <section className="editor">
@@ -188,6 +227,55 @@ export default function ScenarioEditor({ id }: { id?: string }) {
 
       <fieldset>
         <legend>Alvo</legend>
+        {(bothPlatforms || (health && ((k8s && !health.kubernetes) || (!k8s && !health.docker)))) && (
+          <div className="profile-types">
+            {(['docker', 'kubernetes'] as Platform[]).map((p) => (
+              <label key={p} className={`choice ${platform === p ? 'selected' : ''}`}>
+                <input type="radio" name="platform" checked={platform === p} onChange={() => setPlatform(p)} />
+                <strong>{p === 'docker' ? 'Container Docker' : 'Deployment Kubernetes'}</strong>
+                <span className="muted">
+                  {p === 'docker'
+                    ? health?.docker
+                      ? 'Um container do Docker local.'
+                      : 'O backend não alcança o Docker daqui.'
+                    : health?.kubernetes
+                      ? 'Os pods de um Deployment do cluster; falhas pelo Chaos Mesh.'
+                      : 'O backend não está rodando num cluster.'}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        {k8s ? (
+          <div className="row">
+            <label>
+              Deployment
+              <select value={depKey} onChange={(e) => pickDeployment(e.target.value)}>
+                <option value="">Escolha…</option>
+                {!knownDep && depKey && <option value={depKey}>{depKey} (não encontrado)</option>}
+                {deployments.map((d) => (
+                  <option key={`${d.namespace}/${d.name}`} value={`${d.namespace}/${d.name}`}>
+                    {d.namespace}/{d.name} ({d.ready}/{d.replicas} prontos)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grow">
+              URL base (vista de dentro do cluster)
+              <input
+                list="k8s-urls"
+                value={draft.target.baseUrl}
+                onChange={(e) => set({ target: { ...draft.target, baseUrl: e.target.value } })}
+                placeholder="http://demo-api.demo:8080"
+              />
+              <datalist id="k8s-urls">
+                {urlOptions.map((u) => (
+                  <option key={u} value={u} />
+                ))}
+              </datalist>
+            </label>
+          </div>
+        ) : (
         <div className="row">
           <label>
             Container
@@ -210,6 +298,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             />
           </label>
         </div>
+        )}
       </fieldset>
 
       {draft.mode === 'chaos' && (
@@ -411,6 +500,18 @@ export default function ScenarioEditor({ id }: { id?: string }) {
                   Duração (s)
                   <input type="number" min={1} value={sel.durationSeconds} onChange={(e) => setSel({ durationSeconds: Math.max(1, Number(e.target.value)) })} />
                 </label>
+                {k8s && (
+                  <label title="pods">
+                    Pods atingidos
+                    <select
+                      value={sel.params.pods || (sel.type === 'kill_restart' ? 'one' : 'all')}
+                      onChange={(e) => setSel({ params: { ...sel.params, pods: e.target.value } })}
+                    >
+                      <option value="one">Um pod (sorteado)</option>
+                      <option value="all">Todos os pods</option>
+                    </select>
+                  </label>
+                )}
                 {faultMeta[sel.type].params.map((p) => (
                   <label key={p.key} title={p.key}>
                     {p.label}
@@ -427,7 +528,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
                 ))}
               </div>
               <p className="muted small">
-                {faultMeta[sel.type].help}
+                {k8s ? faultMeta[sel.type].k8sHelp : faultMeta[sel.type].help}
                 {faultMeta[sel.type].params.some((p) => p.help) && ` Quantidade: ${faultMeta[sel.type].params.find((p) => p.help)?.help}.`}
               </p>
               <button className="link danger" onClick={() => { setFaults(faults.filter((f) => f.id !== sel.id)); setSelected(null); }}>

@@ -1,0 +1,12 @@
+# Dorigao-LTDA/svc-pagamento (Spring Boot, dados em memória): URL no cluster http://svc-pagamento.dorigao:8080/api/pagamento
+image: new-app-chaos-svc-pagamento:dev
+replicas: 2
+port: 8080
+env:
+  # A stack de observabilidade (Alloy) só entra na fase D; até lá, telemetria desligada.
+  - { name: OTEL_SDK_DISABLED, value: "true" }
+  - { name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED, value: "false" }
+probe: { path: /health/readiness, initialDelaySeconds: 15 }
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { cpu: "1", memory: 768Mi }

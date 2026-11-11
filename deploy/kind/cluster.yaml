@@ -1,0 +1,13 @@
+# Cluster KIND do new-app-chaos: um nó só, com a interface exposta em localhost:3000.
+# O script scripts/kind-up.sh troca a porta do host quando UI_PORT é definido.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: new-app-chaos
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # NodePort do frontend (charts/new-app-chaos, frontend.nodePort) -> localhost.
+      - containerPort: 30080
+        hostPort: 3000
+        listenAddress: "127.0.0.1"
+        protocol: TCP

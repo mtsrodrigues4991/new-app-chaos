@@ -8,7 +8,7 @@ A especificação completa (visão, escopo do MVP, IA, interface, arquitetura, m
 
 ## Status
 
-Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos:
+Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos, e a fase A do Kubernetes:
 
 - **Alvos:** lista os containers Docker rodando (nome, imagem, portas, rede) e cria um cenário a partir de um deles.
 - **Cenários:** editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia dos VUs. Salvos em SQLite.
@@ -34,6 +34,13 @@ Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos:
   - **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa essa branch (fica em cache por commit), navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
   - **Relatório imprimível:** o botão "Imprimir / salvar PDF" na execução gera um relatório em A4, sempre em tema claro, com números, veredito, falhas, gráficos e a análise da IA (sem o chat).
   - **Configurações:** escolhe provedor e modelo (padrão Claude Opus 5.5; Sonnet 5.5 e Haiku 5.5 são mais baratos). A camada de provedor (`backend/internal/ai`) é trocável.
+
+- **Kubernetes (MVP2, fase A):** o app também roda dentro de um cluster KIND local (`make kind-up`). Lá o alvo é um **Deployment** (namespace + nome) em vez de um container:
+  - **Carga:** o k6 roda como um Job no namespace do app (`nac-k6-<execução>`); o backend lê o dashboard do k6 pelo IP do pod.
+  - **Falhas pelo Chaos Mesh:** latência e perda viram `NetworkChaos`, CPU e memória viram `StressChaos` e o kill vira `PodChaos pod-kill`. Cada falha tem a opção **um pod (sorteado) ou todos os pods**; o padrão é todos, e no kill é um. O recurso é criado no início do bloco, o app espera o Chaos Mesh confirmar a injeção e apaga no fim. O `duration` do recurso é o bloco + 30 s, uma rede de segurança se o backend cair.
+  - **Recursos:** CPU e memória somadas de todos os pods do Deployment (metrics-server, que atualiza a cada ~15 s) e um gráfico de **pods prontos x existentes**, que mostra a recuperação depois de um kill. A IA recebe as mesmas colunas.
+  - No kill do Kubernetes o pod é apagado no início do bloco e o Deployment recria sozinho; o bloco é o tempo em que a recuperação é observada (no Docker o container fica parado até o fim do bloco).
+  - O modo Docker não mudou: `docker compose up` continua igual.
 
 Backlog: curva de carga desenhável, falhas combinadas, banda/DNS/disco, falhas na entrada (ingress).
 
@@ -64,6 +71,31 @@ As falhas de rede usam o módulo `netem` do kernel. A maioria das distribuiçõe
 - Backend: http://localhost:8080/api/health
 - API de exemplo: http://localhost:8081/items (collection do Postman com `/health`, `/items` e `/compute` em [examples/demo-api/postman_collection.json](examples/demo-api/postman_collection.json))
 
+### Kubernetes local (KIND)
+
+Requisitos: Docker, `make`, `git` e as ferramentas kind, kubectl e helm (`make kind-tools` instala as três em `~/.local/bin`). Reserve uns 6 GB de RAM para o cluster com todos os alvos; no WSL, ajuste `memory=` no `.wslconfig` se precisar.
+
+```bash
+make kind-up      # cria o cluster e instala metrics-server, Chaos Mesh, o new-app-chaos e os alvos
+make kind-app     # depois de mudar o código: reconstrói e reinstala só o new-app-chaos
+make kind-down    # apaga o cluster (e o banco do app que estava nele)
+```
+
+- Interface em http://localhost:3000. A porta é a mesma do `docker compose`: pare o compose antes (`docker compose down`) ou use `UI_PORT=3001 make kind-up`.
+- O `.env` é lido pelo script: `ANTHROPIC_API_KEY` e `GITHUB_TOKEN` viram um Secret do Kubernetes (só essas duas chaves saem do arquivo).
+- Alvos instalados (cada um com 2 réplicas, menos o Postgres), com a URL base para usar no cenário:
+
+| Alvo | Namespace | URL base | Origem |
+|---|---|---|---|
+| demo-api | `demo` | `http://demo-api.demo:8080` | `examples/demo-api` |
+| pix-api + pix-postgres | `pix` | `http://pix-api.pix:8080` | [itau-case-pix](https://github.com/mtsrodrigues4991/itau-case-pix), com o Dockerfile de `deploy/targets/pix` |
+| svc-pedido, svc-pagamento, svc-catalogo | `dorigao` | `http://svc-pedido.dorigao:8080` (`/api/pedido`, `/api/pagamento`, `/api/catalogo`) | repositórios da Dorigao-LTDA, com os Dockerfiles deles |
+
+- Os repositórios dos alvos são clonados em `.targets/` (fora do git). Para usar um clone que você já tem: `PIX_DIR=~/itau-case-pix make kind-up`. Para instalar só alguns: `TARGETS="demo-api pix" make kind-up`.
+- As imagens são construídas na sua máquina e carregadas no nó do KIND (`kind load`); nada vai para registry.
+- Estrutura: `deploy/kind/cluster.yaml`, `deploy/charts/new-app-chaos` (backend, frontend, RBAC, volume do SQLite), `deploy/charts/target` (chart genérico dos alvos) e `deploy/targets/*.yaml` (valores de cada alvo).
+- Para conferir uma falha por fora: `kubectl get networkchaos,stresschaos,podchaos -A` durante a execução; os Jobs do k6 ficam em `kubectl -n new-app-chaos get jobs`.
+
 ### Desenvolvimento sem Docker
 
 ```bash
@@ -84,9 +116,11 @@ backend/            API em Go
   cmd/stressor/     gerador de carga de CPU/memória copiado para dentro do alvo
   internal/api/     rotas REST e stream ao vivo (SSE)
   internal/dockerx/ cliente da Docker Engine API via socket
+  internal/kube/    cliente da API do Kubernetes (sem client-go) e kubefake, uma API falsa para testes
+  internal/chaosmesh/ tradução das falhas em recursos do Chaos Mesh
   internal/scenario/ modelo: alvo, endpoints, perfil de carga, falhas, SLOs
   internal/load/    geração do script k6 e agregação das métricas
-  internal/runner/  orquestra cada execução (k6, sonda, falhas, stats do alvo, streaming)
+  internal/runner/  orquestra cada execução (k6, sonda, falhas, stats do alvo, streaming); plataformas Docker e Kubernetes
   internal/chaos/   injeção e reversão de falhas (tc netem, stressor, kill/restart)
   internal/probe/   sonda HTTP do modo só caos
   internal/verdict/ SLOs por segundo e nota de resiliência (sem IA)
@@ -96,6 +130,8 @@ backend/            API em Go
   internal/store/   persistência em SQLite
 frontend/           React + TypeScript + Vite
 examples/demo-api/  API de exemplo para testes
+deploy/             KIND, charts Helm e valores dos alvos
+scripts/            kind-up, kind-down e instalação das ferramentas
 docs/               especificação
 ```
 
@@ -106,4 +142,6 @@ docs/               especificação
 3. Caos: injetor, as cinco falhas, linha do tempo arrastável, reversão garantida (feito)
 4. IA: SLOs e veredito, relatório via Claude sob demanda, comparação com referência, chat (feito); relatório imprimível e leitura do código da aplicação (feito)
 
-Depois: VMs via SSH, Kubernetes, outros provedores de IA, CLI para CI, SaaS.
+MVP2 (Kubernetes): A, KIND + Helm + alvos Deployment + as 5 falhas pelo Chaos Mesh (feito); B, falha numa dependência (ex.: Postgres) e falhas de IO, DNS e HTTP; C, logs dos pods e eventos do Kubernetes na IA; D, stack Grafana opcional (Prometheus/Mimir, Loki, Tempo, Pyroscope).
+
+Depois: nuvem (AKS/EKS), VMs via SSH, outros provedores de IA, CLI para CI, SaaS.
