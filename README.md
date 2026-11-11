@@ -8,14 +8,14 @@ A especificação completa (visão, escopo do MVP, IA, interface, arquitetura, m
 
 ## Status
 
-Esqueleto do projeto (marco 1). Já funciona:
+Marcos 1 (esqueleto) e 2 (carga) prontos:
 
-- Backend Go com `GET /api/health`, `GET /api/containers` (lista containers Docker em execução) e `GET/POST /api/scenarios` (em memória).
-- Frontend React com a navegação das quatro telas e a tela de **Alvos** listando os containers.
-- Modelo de cenário, geração do script k6 e tradução das falhas em comandos `tc`/`stress-ng` (com testes).
-- Imagem do injetor de falhas e uma API de exemplo (`demo-api`) para testar.
+- **Alvos:** lista os containers Docker rodando (nome, imagem, portas, rede) e cria um cenário a partir de um deles.
+- **Cenários:** editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia dos VUs. Salvos em SQLite.
+- **Execução:** o backend sobe um container `grafana/k6` na mesma rede do alvo, lê as métricas em streaming e transmite ao vivo (Server-Sent Events). Dá para abortar. Uma execução por vez.
+- **Gráficos ao vivo e histórico:** latência p50/p95/p99, RPS, VUs ativos, respostas por código HTTP, taxa de erro, CPU e memória do container alvo. Tudo agregado por segundo e salvo, então execuções antigas podem ser reabertas.
 
-Ainda não implementado: execução do k6, injeção de falhas na linha do tempo, gráficos ao vivo, SQLite e a análise por IA.
+Próximos: curva de carga desenhável, injeção de falhas na linha do tempo (marco 3) e análise por IA (marco 4).
 
 ## Rodando
 
@@ -25,7 +25,9 @@ Requisitos: Docker com Compose.
 docker compose up --build
 ```
 
-- Frontend: http://localhost:3000
+Na primeira execução de um cenário, o backend baixa a imagem `grafana/k6` (pode levar um minuto). Os dados ficam no volume `app-data`; para zerar, `docker compose down -v`.
+
+- Frontend: http://localhost:3000 (comece em Alvos → Criar cenário no `demo-api`)
 - Backend: http://localhost:8080/api/health
 - API de exemplo: http://localhost:8081/items
 
@@ -44,13 +46,14 @@ cd frontend && npm install && npm run dev
 ```
 backend/            API em Go
   cmd/server/       ponto de entrada
-  internal/api/     rotas REST (e WebSocket no futuro)
+  internal/api/     rotas REST e stream ao vivo (SSE)
   internal/dockerx/ cliente da Docker Engine API via socket
   internal/scenario/ modelo: alvo, endpoints, perfil de carga, falhas, SLOs
-  internal/load/    geração do script k6
+  internal/load/    geração do script k6 e agregação das métricas
+  internal/runner/  orquestra cada execução (k6, stats do alvo, streaming)
   internal/chaos/   injeção e reversão de falhas
   internal/ai/      interface LLMProvider (Claude no MVP)
-  internal/store/   persistência (memória agora, SQLite depois)
+  internal/store/   persistência em SQLite
 frontend/           React + TypeScript + Vite
 injector/           imagem com tc e stress-ng para injetar falhas
 examples/demo-api/  API de exemplo para testes
@@ -59,8 +62,8 @@ docs/               especificação
 
 ## Roadmap do MVP
 
-1. Esqueleto (este)
-2. Carga: editor de endpoints e perfil, execução do k6, gráficos ao vivo
+1. Esqueleto (feito)
+2. Carga: editor de endpoints e perfil, execução do k6, gráficos ao vivo (feito; falta a curva desenhável)
 3. Caos: injetor, as cinco falhas, linha do tempo arrastável, reversão garantida
 4. IA: agregação, SLOs e veredito, relatório via Claude, comparação, chat
 

@@ -1,77 +1,265 @@
-// Package api expõe a API REST (e, depois, o WebSocket) consumida pelo frontend.
+// Package api expõe a API REST e o stream ao vivo (Server-Sent Events) consumidos pelo frontend.
 package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 )
 
 type Server struct {
-	Docker *dockerx.Client // pode ser nil se o Docker não estiver acessível
-	Store  store.Store
+	Docker *dockerx.Client // nil se o Docker não estiver acessível
+	Store  *store.Store
+	Runner *runner.Manager
 }
 
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.Logger, middleware.Recoverer)
+	r.Use(middleware.Recoverer)
 
 	r.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "docker": s.Docker != nil})
 	})
 	r.Get("/api/containers", s.listContainers)
+
 	r.Get("/api/scenarios", s.listScenarios)
-	r.Post("/api/scenarios", s.saveScenario)
+	r.Post("/api/scenarios", s.createScenario)
+	r.Get("/api/scenarios/{id}", s.getScenario)
+	r.Put("/api/scenarios/{id}", s.updateScenario)
+	r.Delete("/api/scenarios/{id}", s.deleteScenario)
+	r.Post("/api/scenarios/{id}/runs", s.startRun)
+
+	r.Get("/api/runs", s.listRuns)
+	r.Get("/api/runs/{id}", s.getRun)
+	r.Get("/api/runs/{id}/stream", s.streamRun)
+	r.Post("/api/runs/{id}/abort", s.abortRun)
 	return r
 }
 
 func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
 	if s.Docker == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Docker não acessível"})
+		writeErr(w, http.StatusServiceUnavailable, errors.New("Docker não acessível pelo backend"))
 		return
 	}
 	list, err := s.Docker.ListRunning(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
 }
+
+// --- cenários ---
 
 func (s *Server) listScenarios(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.ListScenarios(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
 }
 
-func (s *Server) saveScenario(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getScenario(w http.ResponseWriter, r *http.Request) {
+	sc, err := s.Store.GetScenario(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sc)
+}
+
+func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 	var sc scenario.Scenario
 	if err := json.NewDecoder(r.Body).Decode(&sc); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido: " + err.Error()})
+		return sc, fmt.Errorf("JSON inválido: %w", err)
+	}
+	if sc.Mode == "" {
+		sc.Mode = scenario.ModeLoad
+	}
+	return sc, sc.Validate()
+}
+
+func (s *Server) createScenario(w http.ResponseWriter, r *http.Request) {
+	sc, err := decodeScenario(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if sc.ID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id é obrigatório"})
-		return
-	}
+	sc.ID = runner.NewID()
 	if err := s.Store.SaveScenario(r.Context(), sc); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, sc)
+}
+
+func (s *Server) updateScenario(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := s.Store.GetScenario(r.Context(), id); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	sc, err := decodeScenario(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	sc.ID = id
+	if err := s.Store.SaveScenario(r.Context(), sc); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sc)
+}
+
+func (s *Server) deleteScenario(w http.ResponseWriter, r *http.Request) {
+	if err := s.Store.DeleteScenario(r.Context(), chi.URLParam(r, "id")); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- execuções ---
+
+func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
+	sc, err := s.Store.GetScenario(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	run, err := s.Runner.Start(r.Context(), sc)
+	if errors.Is(err, runner.ErrBusy) {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	list, err := s.Store.ListRuns(r.Context(), r.URL.Query().Get("scenarioId"), limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.Store.GetRun(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	ws, err := s.Store.Windows(r.Context(), run.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		store.Run
+		Windows []load.Window `json:"windows"`
+	}{run, ws})
+}
+
+func (s *Server) abortRun(w http.ResponseWriter, r *http.Request) {
+	if err := s.Runner.Abort(r.Context(), chi.URLParam(r, "id")); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusConflict, errors.New("a execução não está em andamento"))
+			return
+		}
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// streamRun envia os eventos ao vivo via Server-Sent Events. Se a execução já terminou,
+// envia só o status final e fecha: o frontend busca as janelas salvas em GET /api/runs/{id}.
+func (s *Server) streamRun(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, errors.New("streaming não suportado"))
+		return
+	}
+	id := chi.URLParam(r, "id")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no") // desliga o buffer do nginx
+	send := func(ev runner.Event) {
+		b, _ := json.Marshal(ev)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	ch, unsubscribe, active := s.Runner.Subscribe(id)
+	if !active {
+		run, err := s.Store.GetRun(r.Context(), id)
+		if err != nil {
+			writeStoreErr(w, err)
+			return
+		}
+		send(runner.Event{Type: "status", Status: run.Status, Error: run.Error})
+		fmt.Fprint(w, "event: end\ndata: {}\n\n")
+		flusher.Flush()
+		return
+	}
+	defer unsubscribe()
+	ping := time.NewTicker(15 * time.Second)
+	defer ping.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ping.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		case ev, ok := <-ch:
+			if !ok {
+				fmt.Fprint(w, "event: end\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
+			send(ev)
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func writeStoreErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	writeErr(w, http.StatusInternalServerError, err)
 }

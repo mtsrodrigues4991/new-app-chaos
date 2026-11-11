@@ -3,13 +3,12 @@ package chaos
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 )
 
 func TestCommandsLatency(t *testing.T) {
-	apply, revert, err := Commands(scenario.Fault{Type: scenario.FaultLatency, Duration: 30 * time.Second, Params: map[string]string{"delayMs": "250"}})
+	apply, revert, err := Commands(scenario.Fault{Type: scenario.FaultLatency, Params: map[string]string{"delayMs": "250"}})
 	if err != nil {
 		t.Fatal(err)
 	}
