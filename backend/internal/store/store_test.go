@@ -59,3 +59,23 @@ func TestStore(t *testing.T) {
 		t.Fatalf("ListRuns: %v %d", err, len(runs))
 	}
 }
+
+func TestDiagnostics(t *testing.T) {
+	s, err := Open(t.TempDir() + "/d.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if d, err := s.Diagnostics(ctx, "r"); err != nil || d != nil {
+		t.Fatalf("sem diagnóstico: %v %v", d, err)
+	}
+	in := Diagnostics{Logs: []PodLog{{Pod: "p", Role: "alvo", Lines: []LogLine{{T: 1.5, Text: "oi"}}}}, Events: []KubeEvent{{T: 2, Reason: "Killing"}}}
+	if err := s.SaveDiagnostics(ctx, "r", in); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.Diagnostics(ctx, "r")
+	if err != nil || d == nil || d.Logs[0].Lines[0].Text != "oi" || d.Events[0].Reason != "Killing" {
+		t.Fatalf("d=%+v err=%v", d, err)
+	}
+}

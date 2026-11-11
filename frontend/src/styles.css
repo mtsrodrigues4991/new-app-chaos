@@ -230,3 +230,11 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); border
   .code-read ul { display: block; }
 }
 .editor label.wide { min-width: 280px; }
+
+/* Logs e eventos da execução */
+.diagnostics details { margin: 8px 0; }
+.diagnostics summary { cursor: pointer; padding: 4px 0; }
+.log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 6px 0; }
+.log-lines { max-height: 420px; overflow: auto; }
+.log-lines .error { color: var(--status-critical); }
+.log-fault { color: var(--accent); }

@@ -53,7 +53,11 @@ func (s *Server) runData(ctx context.Context, id string) (analysis.RunData, erro
 	if err != nil {
 		return analysis.RunData{}, err
 	}
-	return analysis.RunData{Run: run, Windows: ws, Events: evs, Verdict: verdict.Evaluate(run.Scenario, ws, evs)}, nil
+	diag, err := s.Store.Diagnostics(ctx, id)
+	if err != nil {
+		return analysis.RunData{}, err
+	}
+	return analysis.RunData{Run: run, Windows: ws, Events: evs, Verdict: verdict.Evaluate(run.Scenario, ws, evs), Diagnostics: diag}, nil
 }
 
 // aiConfig devolve o provedor e o modelo escolhidos em Configurações.

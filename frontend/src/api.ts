@@ -141,6 +141,21 @@ export type FaultEvent = {
   error?: string;
 };
 
+// Logs e eventos coletados durante a execução (o que a IA recebe, resumido).
+export type LogLine = { t: number; text: string };
+export type PodLog = {
+  namespace?: string;
+  pod: string;
+  container?: string;
+  role: string;
+  previous?: boolean;
+  gone?: boolean;
+  truncated?: boolean;
+  lines: LogLine[];
+};
+export type KubeEvent = { t: number; type: string; reason: string; namespace: string; object: string; message: string; count?: number };
+export type Diagnostics = { logs: PodLog[]; events: KubeEvent[]; notes?: string[] };
+
 export type Run = {
   id: string;
   scenarioId: string;
@@ -252,6 +267,7 @@ export const api = {
   startRun: (scenarioId: string) => call<Run>('POST', `/api/scenarios/${scenarioId}/runs`),
   runs: (scenarioId?: string) => call<Run[]>('GET', `/api/runs${scenarioId ? `?scenarioId=${scenarioId}` : ''}`),
   run: (id: string) => call<RunDetail>('GET', `/api/runs/${id}`),
+  diagnostics: (id: string) => call<Diagnostics>('GET', `/api/runs/${id}/diagnostics`),
   abortRun: (id: string) => call<void>('POST', `/api/runs/${id}/abort`),
   setReference: (scenarioId: string, runId: string) => call<{ referenceRunId: string }>('PUT', `/api/scenarios/${scenarioId}/reference`, { runId }),
   analyze: (runId: string) => call<Report>('POST', `/api/runs/${runId}/analysis`),

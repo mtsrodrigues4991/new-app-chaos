@@ -6,6 +6,7 @@
 package kube
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -19,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -94,19 +96,18 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("Kubernetes respondeu %d: %s", e.Status, e.Message)
 }
 
-// Do faz uma chamada; body (se não nil) vai como JSON e a resposta é decodificada em out.
-func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
+func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		rd = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.Base+path, rd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if body != nil {
 		ct := "application/json"
@@ -124,6 +125,15 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	}
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	return req, nil
+}
+
+// Do faz uma chamada; body (se não nil) vai como JSON e a resposta é decodificada em out.
+func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
+	req, err := c.newRequest(ctx, method, path, body)
+	if err != nil {
+		return err
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -300,6 +310,107 @@ func (c *Client) PodLogs(ctx context.Context, ns, name string, tail int) (string
 	var s string
 	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?tailLines=%d", ns, name, tail), nil, &s)
 	return s, err
+}
+
+// PodLogsSince devolve o log de um container desde since, com o instante de cada linha
+// (timestamps=true), limitado às últimas tail linhas. previous lê a instância anterior de um
+// container que reiniciou.
+func (c *Client) PodLogsSince(ctx context.Context, ns, pod, container string, since time.Time, tail int, previous bool) (string, error) {
+	v := url.Values{}
+	v.Set("container", container)
+	v.Set("timestamps", "true")
+	v.Set("sinceTime", since.UTC().Format(time.RFC3339))
+	v.Set("tailLines", strconv.Itoa(tail))
+	if previous {
+		v.Set("previous", "true")
+	}
+	var s string
+	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?%s", ns, pod, v.Encode()), nil, &s)
+	return s, err
+}
+
+// FollowPodLogs acompanha o log de um container (follow=true, com timestamps) desde since e
+// chama fn a cada linha, até o container terminar ou ctx acabar. Assim as últimas linhas de
+// um pod apagado (ex.: o shutdown depois de um kill) não se perdem.
+func (c *Client) FollowPodLogs(ctx context.Context, ns, pod, container string, since time.Time, fn func(line string)) error {
+	v := url.Values{}
+	v.Set("container", container)
+	v.Set("timestamps", "true")
+	v.Set("follow", "true")
+	v.Set("sinceTime", since.UTC().Format(time.RFC3339))
+	req, err := c.newRequest(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?%s", ns, pod, v.Encode()), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: log de %s/%s", ErrNotFound, ns, pod)
+		}
+		return &APIError{Status: resp.StatusCode, Message: strings.TrimSpace(string(b))}
+	}
+	r := bufio.NewReaderSize(resp.Body, 64<<10)
+	for {
+		line, err := r.ReadString('\n')
+		if line = strings.TrimRight(line, "\r\n"); line != "" {
+			fn(line)
+		}
+		if err != nil {
+			if err == io.EOF || ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+// Event é um evento do Kubernetes (core/v1).
+type Event struct {
+	Metadata       Meta   `json:"metadata"`
+	Type           string `json:"type"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	Count          int    `json:"count"`
+	InvolvedObject struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	} `json:"involvedObject"`
+	FirstTimestamp *time.Time `json:"firstTimestamp"`
+	LastTimestamp  *time.Time `json:"lastTimestamp"`
+	EventTime      *time.Time `json:"eventTime"`
+	Series         *struct {
+		Count            int        `json:"count"`
+		LastObservedTime *time.Time `json:"lastObservedTime"`
+	} `json:"series"`
+}
+
+// When devolve o instante mais recente do evento.
+func (e Event) When() time.Time {
+	for _, t := range []*time.Time{e.LastTimestamp, seriesTime(e), e.EventTime, e.FirstTimestamp} {
+		if t != nil && !t.IsZero() {
+			return *t
+		}
+	}
+	return e.Metadata.CreationTimestamp
+}
+
+func seriesTime(e Event) *time.Time {
+	if e.Series == nil {
+		return nil
+	}
+	return e.Series.LastObservedTime
+}
+
+// ListEvents lista os eventos de um namespace.
+func (c *Client) ListEvents(ctx context.Context, ns string) ([]Event, error) {
+	var l list[Event]
+	err := c.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/namespaces/%s/events", ns), nil, &l)
+	return l.Items, err
 }
 
 // PodUsage é o consumo de um pod segundo o metrics-server.

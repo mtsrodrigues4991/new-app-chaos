@@ -55,6 +55,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/runs", s.listRuns)
 	r.Get("/api/runs/{id}", s.getRun)
 	r.Get("/api/runs/{id}/stream", s.streamRun)
+	r.Get("/api/runs/{id}/diagnostics", s.getDiagnostics)
 	r.Post("/api/runs/{id}/abort", s.abortRun)
 	r.Post("/api/runs/{id}/analysis", s.analyzeRun)
 	r.Get("/api/runs/{id}/chat", s.getChat)
@@ -198,6 +199,19 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// GET /api/runs/{id}/diagnostics: logs e eventos coletados ({} se não houver).
+func (s *Server) getDiagnostics(w http.ResponseWriter, r *http.Request) {
+	d, err := s.Store.Diagnostics(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if d == nil {
+		d = &store.Diagnostics{Logs: []store.PodLog{}, Events: []store.KubeEvent{}}
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
