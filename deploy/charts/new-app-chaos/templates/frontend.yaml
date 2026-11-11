@@ -36,11 +36,13 @@ metadata:
   name: frontend
   labels: {{- include "nac.labels" . | nindent 4 }}
 spec:
-  type: NodePort
+  type: {{ .Values.frontend.serviceType }}
   selector:
     app.kubernetes.io/name: new-app-chaos-frontend
   ports:
     - name: http
       port: 80
       targetPort: http
+      {{- if eq .Values.frontend.serviceType "NodePort" }}
       nodePort: {{ .Values.frontend.nodePort }}
+      {{- end }}

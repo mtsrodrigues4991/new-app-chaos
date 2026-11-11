@@ -1,0 +1,63 @@
+# Botão "Desligar": guarda o certificado HTTPS e apaga o cluster AKS. A base (IP fixo, ACR,
+# estado) fica, custando uns US$ 4/mês. Também roda todo dia às 2h (Brasília) se a variável
+# de repositório AUTO_DOWN for "true", para o cluster não ficar esquecido ligado.
+name: Azure - Desligar ambiente
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: azure-env
+  cancel-in-progress: false
+
+env:
+  AZURE_CLIENT_ID: 9c800ea0-dece-4d75-a39b-f0b1da116d43
+  AZURE_TENANT_ID: a753c359-4723-4818-bd4b-783b60b63f28
+  AZURE_SUBSCRIPTION_ID: 488eeea4-6eba-44ae-ba31-a4b8a95b7f69
+  ARM_CLIENT_ID: 9c800ea0-dece-4d75-a39b-f0b1da116d43
+  ARM_TENANT_ID: a753c359-4723-4818-bd4b-783b60b63f28
+  ARM_SUBSCRIPTION_ID: 488eeea4-6eba-44ae-ba31-a4b8a95b7f69
+  ARM_USE_OIDC: "true"
+  RG: new-app
+  LOCATION: eastus2
+  TF_DIR: infra/azure
+
+jobs:
+  down:
+    name: Apagar o cluster
+    if: github.event_name == 'workflow_dispatch' || vars.AUTO_DOWN == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Storage do estado
+        id: state
+        run: scripts/azure-state.sh >> "$GITHUB_OUTPUT"
+      - name: Guardar o certificado HTTPS
+        run: |
+          if az aks show -g "$RG" -n new-app-chaos -o none 2>/dev/null; then
+            az aks get-credentials -g "$RG" -n new-app-chaos --overwrite-existing
+            scripts/azure-tls-backup.sh "${{ steps.state.outputs.sa }}" || echo "aviso: não guardei o certificado"
+          else
+            echo "cluster já está desligado"
+          fi
+      - name: terraform apply (cluster desligado)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false -backend-config="resource_group_name=$RG" -backend-config="storage_account_name=${{ steps.state.outputs.sa }}" \
+            -backend-config="container_name=tfstate" -backend-config="key=mvp-plus.tfstate" -backend-config="use_oidc=true"
+          terraform apply -input=false -auto-approve -var cluster_enabled=false
+          echo "## Ambiente desligado" >> "$GITHUB_STEP_SUMMARY"
