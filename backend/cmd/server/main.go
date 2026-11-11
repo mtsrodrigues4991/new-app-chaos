@@ -9,6 +9,7 @@ import (
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/api"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
@@ -79,7 +80,20 @@ func main() {
 		CacheDir: getenv("CODE_CACHE_DIR", filepath.Join(filepath.Dir(dbPath), "code")),
 	}
 
-	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, AI: reg, Code: code}
+	// Login (modo nuvem): AUTH_ENABLED=true + ADMIN_PASSWORD. Desligado, tudo fica aberto.
+	au, err := auth.FromEnv(context.Background(), st)
+	if err != nil {
+		log.Fatalf("login: %v", err)
+	}
+	guard := api.GuardFromEnv()
+	if len(guard.AllowedHosts) > 0 {
+		log.Printf("alvos permitidos: %v", guard.AllowedHosts)
+	}
+	if guard.AIDailyLimit > 0 {
+		log.Printf("limite diário da IA: %d", guard.AIDailyLimit)
+	}
+
+	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, AI: reg, Code: code, Auth: au, Guard: guard}
 	// Grafana pelo próprio app (/grafana), sem port-forward: só com a observabilidade ligada.
 	if g := os.Getenv("OBS_GRAFANA_PROXY"); g != "" {
 		h, err := api.GrafanaProxy(g)

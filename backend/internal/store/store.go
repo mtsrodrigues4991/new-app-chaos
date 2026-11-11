@@ -107,7 +107,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // SQLite: um escritor por vez evita "database is locked"
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + authSchema); err != nil {
 		db.Close()
 		return nil, err
 	}

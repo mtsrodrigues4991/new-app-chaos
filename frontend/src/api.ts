@@ -39,7 +39,14 @@ export function targetName(t: Target): string {
   return targetPlatform(t) === 'kubernetes' ? `${t.namespace}/${t.deployment}` : t.container ?? '';
 }
 
-export type Health = { status: string; docker: boolean; kubernetes: boolean; observability?: boolean; namespace?: string; grafanaUrl?: string };
+export type Health = { status: string; docker: boolean; kubernetes: boolean; observability?: boolean; namespace?: string; grafanaUrl?: string; authEnabled?: boolean };
+
+// Login (modo nuvem). Com authEnabled false, o app fica aberto como no modo local.
+export type User = { username: string; admin: boolean; createdAt: string };
+export type Me = { authEnabled: boolean; user?: User };
+
+// Disparado quando a sessão expira no meio do uso: o App volta para a tela de login.
+export const UNAUTHORIZED_EVENT = 'nac:unauthorized';
 
 export type Endpoint = {
   method: string;
@@ -260,6 +267,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? `HTTP ${res.status}`);
   }
@@ -283,6 +291,12 @@ export function grafanaExploreUrl(base: string, job: string, from: number, to: n
 
 export const api = {
   health: () => call<Health>('GET', '/api/health'),
+  me: () => call<Me>('GET', '/api/auth/me'),
+  login: (username: string, password: string) => call<Me>('POST', '/api/auth/login', { username, password }),
+  logout: () => call<void>('POST', '/api/auth/logout'),
+  users: () => call<User[]>('GET', '/api/users'),
+  createUser: (username: string, password: string, admin: boolean) => call<User>('POST', '/api/users', { username, password, admin }),
+  deleteUser: (username: string) => call<void>('DELETE', `/api/users/${encodeURIComponent(username)}`),
   containers: () => call<Container[]>('GET', '/api/containers'),
   deployments: () => call<DeploymentInfo[]>('GET', '/api/deployments'),
   scenarios: () => call<Scenario[]>('GET', '/api/scenarios'),

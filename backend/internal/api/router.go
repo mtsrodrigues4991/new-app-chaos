@@ -15,6 +15,7 @@ import (
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
@@ -34,14 +35,23 @@ type Server struct {
 	Code   *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
 	// Grafana repassa /grafana/ para o Grafana do cluster (nil = sem proxy).
 	Grafana http.Handler
+	// Auth é o login do modo nuvem (nil ou desligado = tudo aberto, como no modo local).
+	Auth *auth.Service
+	// Guard limita alvos e uso da IA no modo nuvem (zero = sem limites).
+	Guard *Guard
 }
 
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	if s.Auth != nil {
+		r.Use(s.Auth.Middleware)
+		s.Auth.Routes(r)
+	}
 
 	r.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) {
-		h := map[string]any{"status": "ok", "docker": s.Docker != nil, "kubernetes": s.Kube != nil, "observability": s.Runner != nil && s.Runner.Obs != nil}
+		h := map[string]any{"status": "ok", "docker": s.Docker != nil, "kubernetes": s.Kube != nil, "observability": s.Runner != nil && s.Runner.Obs != nil,
+			"authEnabled": s.Auth != nil && s.Auth.Enabled}
 		if s.Kube != nil {
 			h["namespace"] = s.Kube.Namespace()
 		}
@@ -140,8 +150,16 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 	return sc, sc.Validate()
 }
 
+// checkScenario junta a validação do cenário com as regras do modo nuvem.
+func (s *Server) checkScenario(sc scenario.Scenario) error {
+	return s.Guard.CheckTarget(sc.Target.BaseURL)
+}
+
 func (s *Server) createScenario(w http.ResponseWriter, r *http.Request) {
 	sc, err := decodeScenario(r)
+	if err == nil {
+		err = s.checkScenario(sc)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -161,6 +179,9 @@ func (s *Server) updateScenario(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sc, err := decodeScenario(r)
+	if err == nil {
+		err = s.checkScenario(sc)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -187,6 +208,10 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	sc, err := s.Store.GetScenario(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		writeStoreErr(w, err)
+		return
+	}
+	if err := s.checkScenario(sc); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	run, err := s.Runner.Start(r.Context(), sc)
