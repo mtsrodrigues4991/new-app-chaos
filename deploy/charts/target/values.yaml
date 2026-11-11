@@ -21,6 +21,18 @@ persistence:
   enabled: false
   size: 1Gi
   storageClass: ""
+# Telemetria para a stack de observabilidade (OBS=1 no scripts/kind-up.sh).
+otel:
+  enabled: false
+  # Coletor OTLP (http/protobuf) da stack grafana/otel-lgtm.
+  endpoint: http://lgtm.observability:4318
+  # Alvo Java: carrega o OpenTelemetry Java agent (métricas da JVM, HTTP, pool do banco,
+  # traces) sem reconstruir a imagem. Os jars vêm de agentsImage por um initContainer.
+  java: false
+  # Com java: também o Pyroscope Java agent (profiling de CPU e alocação).
+  profiling: false
+  pyroscope: http://lgtm.observability:4040
+  agentsImage: new-app-chaos-java-agents:dev
 resources:
   requests: { cpu: 100m, memory: 64Mi }
   limits: { cpu: 500m, memory: 256Mi }

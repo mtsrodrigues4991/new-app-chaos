@@ -19,6 +19,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/chaos"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/obs"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/probe"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
@@ -64,13 +65,18 @@ type Manager struct {
 	Store   *store.Store
 	Chaos   *chaos.Engine
 	K6Image string
+	// Obs lê a telemetria da aplicação na stack de observabilidade (nil = desligada; só vale
+	// para alvos no Kubernetes).
+	Obs *obs.Client
+	// ObsSettle é quanto esperar, no fim, as últimas métricas e traces chegarem à stack.
+	ObsSettle time.Duration
 
 	mu   sync.Mutex
 	runs map[string]*active
 }
 
 func NewManager(d *dockerx.Client, k *kube.Client, s *store.Store) *Manager {
-	return &Manager{Docker: d, Kube: k, Store: s, Chaos: &chaos.Engine{Docker: d}, K6Image: DefaultK6Image, runs: map[string]*active{}}
+	return &Manager{Docker: d, Kube: k, Store: s, Chaos: &chaos.Engine{Docker: d}, K6Image: DefaultK6Image, ObsSettle: 10 * time.Second, runs: map[string]*active{}}
 }
 
 // platform devolve a plataforma do alvo do cenário, ou erro se ela não está acessível.
@@ -431,6 +437,9 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		diag := collector.Diagnostics(dctx, started)
 		cancel()
+		if m.Obs != nil && sc.Target.EffectivePlatform() == scenario.PlatformKubernetes {
+			diag.App = m.appTelemetry(sc, started)
+		}
 		if err := m.Store.SaveDiagnostics(ctx, run.ID, diag); err != nil {
 			log.Printf("run %s: salvando logs e eventos: %v", run.ID, err)
 		}
@@ -452,6 +461,24 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 	default:
 		m.setStatus(run.ID, a, store.RunCompleted, "", nil, &ended)
 	}
+}
+
+// appTelemetry lê na stack de observabilidade as métricas, traces e profiling do alvo e das
+// dependências usadas nas falhas.
+func (m *Manager) appTelemetry(sc scenario.Scenario, started time.Time) *store.AppTelemetry {
+	time.Sleep(m.ObsSettle) // as métricas chegam a cada 5 s e o profiling a cada 10 s
+	svcs := []obs.Service{{Namespace: sc.Target.Namespace, Name: sc.Target.Deployment}}
+	seen := map[string]bool{svcs[0].String(): true}
+	for _, d := range deps(sc) {
+		s := obs.Service{Namespace: d.Namespace, Name: d.Deployment}
+		if !seen[s.String()] {
+			seen[s.String()] = true
+			svcs = append(svcs, s)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	return m.Obs.Collect(ctx, svcs, started, time.Now())
 }
 
 type k6Exit struct {

@@ -104,6 +104,23 @@ make kind-down    # apaga o cluster (e o banco do app que estava nele)
 - Estrutura: `deploy/kind/cluster.yaml`, `deploy/charts/new-app-chaos` (backend, frontend, RBAC, volume do SQLite), `deploy/charts/target` (chart genérico dos alvos) e `deploy/targets/*.yaml` (valores de cada alvo).
 - Para conferir uma falha por fora: `kubectl get networkchaos,stresschaos,podchaos -A` durante a execução; os Jobs do k6 ficam em `kubectl -n new-app-chaos get jobs`.
 
+#### Observabilidade opcional (fase D)
+
+```bash
+OBS=1 ./scripts/kind-up.sh    # ou: make kind-up OBS=1
+kubectl -n observability port-forward svc/lgtm 3001:3000   # Grafana em http://localhost:3001 (sem login)
+```
+
+- Instala a imagem [grafana/otel-lgtm](https://github.com/grafana/docker-otel-lgtm) no namespace `observability`: OpenTelemetry Collector, Prometheus, Tempo, Loki, Pyroscope e Grafana num pod só (~1-2 GB de RAM; dados em emptyDir). Na primeira vez o nó baixa ~1 GB.
+- O pix-api passa a carregar o **OpenTelemetry Java agent** e o **Pyroscope Java agent**, sem reconstruir a imagem: um initContainer copia os jars (imagem `deploy/agents`, construída na sua máquina) e o `JAVA_TOOL_OPTIONS` os carrega. Saem métricas da JVM, HTTP e pool do banco a cada 5 s, traces e profiling de CPU e alocação.
+- No fim de cada execução no Kubernetes, o backend espera ~10 s e lê da stack, para o alvo e as dependências usadas nas falhas:
+  - **Prometheus:** heap, pausas de GC, threads, requisições recebidas (taxa, p95, 5xx), chamadas de saída, pool de conexões (em uso, esperando, tempo de espera), além da lista das outras métricas existentes.
+  - **Tempo:** os traces com erro e os lentos (> 200 ms), com os spans que mais pesaram (SQL, exceção).
+  - **Pyroscope:** as funções que mais consumiram CPU e as que mais alocaram memória.
+- Tudo aparece em "Telemetria da aplicação" na tela da execução, com gráficos e as faixas das falhas, e vai para a IA.
+- Rodar `./scripts/kind-up.sh` de novo sem `OBS=1` tira os agentes do pix-api e desliga a leitura (a stack continua instalada; apague com `kubectl delete ns observability`).
+- Outros alvos: com `otel.enabled=true` no `deploy/targets/<alvo>.yaml`, o chart passa as variáveis `OTEL_*` (serviço, endpoint OTLP); `otel.java=true` adiciona os agentes. Os svc-* da Dorigao têm a própria instrumentação e ainda não foram ligados.
+
 ### Desenvolvimento sem Docker
 
 ```bash

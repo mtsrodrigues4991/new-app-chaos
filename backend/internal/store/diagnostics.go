@@ -14,6 +14,66 @@ type Diagnostics struct {
 	Events []KubeEvent `json:"events"`
 	// Notes conta o que não deu para coletar (ex.: sem permissão para ler eventos).
 	Notes []string `json:"notes,omitempty"`
+	// App é a telemetria da aplicação vinda da stack de observabilidade (só com OBS=1).
+	App *AppTelemetry `json:"app,omitempty"`
+}
+
+// AppTelemetry é o que a stack de observabilidade viu durante a execução.
+type AppTelemetry struct {
+	Metrics  []MetricSeries `json:"metrics"`
+	Traces   []TraceSummary `json:"traces"`
+	Profiles []ProfileTop   `json:"profiles"`
+	// Available lista, por serviço, as métricas que existiam no Prometheus (para a IA saber o
+	// que mais há, e para entender uma série que veio vazia).
+	Available map[string][]string `json:"available,omitempty"`
+	Notes     []string            `json:"notes,omitempty"`
+	// GrafanaURL é o endereço do Grafana para links na tela ("" = sem link).
+	GrafanaURL string `json:"grafanaUrl,omitempty"`
+}
+
+// MetricSeries é uma série por serviço (t em segundos desde o início, passo fixo).
+type MetricSeries struct {
+	Service string       `json:"service"` // ns/deployment
+	Key     string       `json:"key"`     // ex.: heap_mb
+	Label   string       `json:"label"`   // ex.: Heap usado
+	Unit    string       `json:"unit"`    // ex.: MB
+	Points  []PointValue `json:"points"`
+}
+
+type PointValue struct {
+	T float64 `json:"t"`
+	V float64 `json:"v"`
+}
+
+// TraceSummary é um trace lento ou com erro, com os spans que mais pesaram.
+type TraceSummary struct {
+	Service    string        `json:"service"`
+	Kind       string        `json:"kind"` // lento ou erro
+	TraceID    string        `json:"traceId"`
+	T          float64       `json:"t"`
+	Root       string        `json:"root"`
+	DurationMs float64       `json:"durationMs"`
+	Spans      []SpanSummary `json:"spans,omitempty"`
+}
+
+type SpanSummary struct {
+	Service    string  `json:"service"`
+	Name       string  `json:"name"`
+	DurationMs float64 `json:"durationMs"`
+	Error      bool    `json:"error,omitempty"`
+	Detail     string  `json:"detail,omitempty"` // ex.: o SQL, a URL chamada, a mensagem de erro
+}
+
+// ProfileTop são as funções que mais consumiram (CPU ou alocação) durante a execução.
+type ProfileTop struct {
+	Service   string         `json:"service"`
+	Type      string         `json:"type"` // cpu ou alocação
+	Functions []ProfileEntry `json:"functions"`
+}
+
+type ProfileEntry struct {
+	Name    string  `json:"name"`
+	SelfPct float64 `json:"selfPct"`
 }
 
 // PodLog é o log de um container (no Docker, o próprio container alvo).

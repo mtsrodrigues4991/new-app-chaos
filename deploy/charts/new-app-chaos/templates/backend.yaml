@@ -50,6 +50,12 @@ spec:
                   fieldPath: metadata.namespace
             - name: K6_IMAGE
               value: {{ .Values.backend.k6Image }}
+            {{- if .Values.observability.enabled }}
+            - { name: OBS_PROMETHEUS_URL, value: {{ .Values.observability.prometheusUrl | quote }} }
+            - { name: OBS_TEMPO_URL, value: {{ .Values.observability.tempoUrl | quote }} }
+            - { name: OBS_PYROSCOPE_URL, value: {{ .Values.observability.pyroscopeUrl | quote }} }
+            - { name: OBS_GRAFANA_URL, value: {{ .Values.observability.grafanaUrl | quote }} }
+            {{- end }}
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:

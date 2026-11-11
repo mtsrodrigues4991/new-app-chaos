@@ -21,6 +21,17 @@ frontend:
     requests: { cpu: 20m, memory: 32Mi }
     limits: { cpu: 200m, memory: 128Mi }
 
+# Stack de observabilidade (OBS=1 no scripts/kind-up.sh). Com enabled, o backend lê, no fim
+# de cada execução no Kubernetes, as métricas da aplicação (Prometheus), os traces lentos e
+# com erro (Tempo) e o profiling (Pyroscope) dos alvos, e manda para a IA.
+observability:
+  enabled: false
+  prometheusUrl: http://lgtm.observability:9090
+  tempoUrl: http://lgtm.observability:3200
+  pyroscopeUrl: http://lgtm.observability:4040
+  # Endereço do Grafana no seu navegador (para os links da tela); vazio = sem link.
+  grafanaUrl: http://localhost:3001
+
 # Secret com ANTHROPIC_API_KEY e GITHUB_TOKEN (opcionais). O scripts/kind-up.sh cria a
 # partir do .env; o chart só referencia, para a chave nunca passar pelo values.
 secretName: new-app-chaos-secrets

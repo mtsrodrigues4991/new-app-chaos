@@ -34,8 +34,37 @@ spec:
           ports:
             - containerPort: {{ .Values.port }}
               name: app
-          {{- with .Values.env }}
-          env: {{- toYaml . | nindent 12 }}
+          {{- if or .Values.env .Values.otel.enabled }}
+          env:
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.otel.enabled }}
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - { name: OTEL_SDK_DISABLED, value: "false" }
+            - { name: OTEL_SERVICE_NAME, value: {{ $name | quote }} }
+            - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace={{ .Release.Namespace }},k8s.namespace.name={{ .Release.Namespace }},k8s.pod.name=$(POD_NAME)" }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ .Values.otel.endpoint | quote }} }
+            - { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: http/protobuf }
+            # Métricas a cada 5 s: a execução dura poucos minutos.
+            - { name: OTEL_METRIC_EXPORT_INTERVAL, value: "5000" }
+            # Os logs já vêm do Kubernetes; o agente não precisa exportar.
+            - { name: OTEL_LOGS_EXPORTER, value: none }
+            {{- if .Values.otel.java }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/otel-agents/opentelemetry-javaagent.jar{{ if .Values.otel.profiling }} -javaagent:/otel-agents/pyroscope.jar{{ end }}"
+            {{- if .Values.otel.profiling }}
+            - { name: PYROSCOPE_APPLICATION_NAME, value: {{ $name | quote }} }
+            - { name: PYROSCOPE_SERVER_ADDRESS, value: {{ .Values.otel.pyroscope | quote }} }
+            - { name: PYROSCOPE_FORMAT, value: jfr }
+            - { name: PYROSCOPE_PROFILER_EVENT, value: itimer }
+            - { name: PYROSCOPE_PROFILER_ALLOC, value: 512k }
+            - { name: PYROSCOPE_UPLOAD_INTERVAL, value: 10s }
+            - { name: PYROSCOPE_LABELS, value: "service_namespace={{ .Release.Namespace }}" }
+            {{- end }}
+            {{- end }}
+            {{- end }}
           {{- end }}
           readinessProbe:
             {{- if .Values.probe.path }}
@@ -49,13 +78,36 @@ spec:
             initialDelaySeconds: {{ .Values.probe.initialDelaySeconds }}
             periodSeconds: {{ .Values.probe.periodSeconds }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.dataPath }}
+          {{- $agents := and .Values.otel.enabled .Values.otel.java }}
+          {{- if or .Values.dataPath $agents }}
           volumeMounts:
+            {{- with .Values.dataPath }}
             - name: data
               mountPath: {{ . }}
+            {{- end }}
+            {{- if $agents }}
+            - name: otel-agents
+              mountPath: /otel-agents
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if .Values.dataPath }}
+      {{- if $agents }}
+      initContainers:
+        - name: otel-agents
+          image: {{ .Values.otel.agentsImage }}
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c, "cp /agents/*.jar /otel-agents/"]
+          volumeMounts:
+            - name: otel-agents
+              mountPath: /otel-agents
+      {{- end }}
+      {{- if or .Values.dataPath $agents }}
       volumes:
+        {{- if $agents }}
+        - name: otel-agents
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.dataPath }}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
@@ -63,6 +115,7 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- end }}
       {{- end }}
 {{- if and .Values.dataPath .Values.persistence.enabled }}
 ---

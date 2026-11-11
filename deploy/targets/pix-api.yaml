@@ -11,4 +11,5 @@ env:
 probe: { path: "", initialDelaySeconds: 15 }
 resources:
   requests: { cpu: 250m, memory: 384Mi }
-  limits: { cpu: "1", memory: 768Mi }
+  # 1 GiB: com OBS=1 os agentes OpenTelemetry e Pyroscope somam ~100 MB fora do heap.
+  limits: { cpu: "1", memory: 1Gi }

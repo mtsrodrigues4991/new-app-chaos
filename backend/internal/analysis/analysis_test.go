@@ -186,3 +186,24 @@ func TestDescribeDiagnostics(t *testing.T) {
 		t.Fatal("sem diagnóstico, nada")
 	}
 }
+
+func TestDescribeApp(t *testing.T) {
+	a := &store.AppTelemetry{
+		Metrics: []store.MetricSeries{
+			{Service: "pix/pix-api", Key: "heap_mb", Label: "Heap usado", Unit: "MB", Points: []store.PointValue{{T: 0, V: 120.5}, {T: 5, V: 130}}},
+			{Service: "pix/pix-api", Key: "db_pending", Label: "Esperando conexão do pool", Points: []store.PointValue{{T: 5, V: 8}}},
+		},
+		Traces: []store.TraceSummary{{Service: "pix/pix-api", Kind: "erro", TraceID: "e1", T: 21, Root: "GET /x", DurationMs: 3000,
+			Spans: []store.SpanSummary{{Service: "pix-api", Name: "getConnection", DurationMs: 2999, Error: true, Detail: "SQLTransientConnectionException"}}}},
+		Profiles:  []store.ProfileTop{{Service: "pix/pix-api", Type: "cpu", Functions: []store.ProfileEntry{{Name: "a.B.c", SelfPct: 42}}}},
+		Available: map[string][]string{"pix/pix-api": {"jvm_memory_used_bytes"}},
+		Notes:     []string{"pix/pix-postgres não mandou métricas"},
+	}
+	out := DescribeDiagnostics(&store.Diagnostics{App: a}, DiagChars)
+	for _, want := range []string{"t,heap_mb,db_pending\n0,120.5,\n5,130,8\n", "t=21 erro pix/pix-api: GET /x, 3000 ms (trace e1)",
+		"[erro] pix-api getConnection: 2999 ms (SQLTransientConnectionException)", "pix/pix-api, cpu: a.B.c 42%", "jvm_memory_used_bytes", "não mandou métricas"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("faltou %q em:\n%s", want, out)
+		}
+	}
+}
