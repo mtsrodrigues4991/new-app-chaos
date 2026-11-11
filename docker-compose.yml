@@ -7,7 +7,10 @@ services:
       # Acesso ao Docker local para listar alvos e controlar containers.
       # Atenção: isso dá ao backend controle total do Docker da máquina.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Banco SQLite com cenários, execuções e métricas (sobrevive a reinícios).
+      - app-data:/data
     environment:
+      - DB_PATH=/data/app.db
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 
   frontend:
@@ -29,3 +32,6 @@ services:
     build: ./examples/demo-api
     ports:
       - "8081:8080"
+
+volumes:
+  app-data:

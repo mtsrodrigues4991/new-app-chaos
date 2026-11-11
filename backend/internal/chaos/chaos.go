@@ -1,4 +1,4 @@
-// Package chaos injeta e reverte falhas no container alvo.
+// Package chaos injeta e reverte falhas no container alvo (marco 3).
 //
 // No MVP, as falhas de rede e de recursos rodam num container auxiliar
 // ("injetor") que compartilha o namespace de rede do alvo
@@ -35,10 +35,10 @@ func Commands(f scenario.Fault) (apply []string, revert []string, err error) {
 		return []string{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", p("percent", "10") + "%"},
 			[]string{"tc", "qdisc", "del", "dev", "eth0", "root"}, nil
 	case scenario.FaultCPUStress:
-		return []string{"stress-ng", "--cpu", p("workers", "1"), "--cpu-load", p("load", "80"), "--timeout", fmt.Sprintf("%ds", int(f.Duration.Seconds()))},
+		return []string{"stress-ng", "--cpu", p("workers", "1"), "--cpu-load", p("load", "80"), "--timeout", fmt.Sprintf("%ds", f.DurationSeconds)},
 			[]string{"pkill", "stress-ng"}, nil
 	case scenario.FaultMemStress:
-		return []string{"stress-ng", "--vm", "1", "--vm-bytes", p("megabytes", "256") + "M", "--timeout", fmt.Sprintf("%ds", int(f.Duration.Seconds()))},
+		return []string{"stress-ng", "--vm", "1", "--vm-bytes", p("megabytes", "256") + "M", "--timeout", fmt.Sprintf("%ds", f.DurationSeconds)},
 			[]string{"pkill", "stress-ng"}, nil
 	case scenario.FaultKillRestart:
 		// Feito direto pela Docker API, não por comando no injetor.

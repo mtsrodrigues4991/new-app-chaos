@@ -1,38 +1,37 @@
-import { useState } from 'react';
+import { useRoute } from './router';
 import Targets from './pages/Targets';
+import Scenarios from './pages/Scenarios';
+import ScenarioEditor from './pages/ScenarioEditor';
+import Runs from './pages/Runs';
+import RunView from './pages/RunView';
 
-// As quatro telas previstas na especificação. Só "Alvos" está implementada no esqueleto.
-const pages = [
-  { id: 'targets', label: 'Alvos' },
-  { id: 'scenario', label: 'Editor de cenário' },
-  { id: 'run', label: 'Execução ao vivo' },
-  { id: 'report', label: 'Relatório' },
-] as const;
-
-type PageId = (typeof pages)[number]['id'];
+const nav = [
+  { path: 'alvos', label: 'Alvos' },
+  { path: 'cenarios', label: 'Cenários' },
+  { path: 'execucoes', label: 'Execuções' },
+  { path: 'relatorio', label: 'Relatório' },
+];
 
 export default function App() {
-  const [page, setPage] = useState<PageId>('targets');
+  const [section = 'alvos', id] = useRoute();
   return (
     <div className="layout">
       <nav>
         <strong>new-app-chaos</strong>
-        {pages.map((p) => (
-          <button key={p.id} className={p.id === page ? 'active' : ''} onClick={() => setPage(p.id)}>
-            {p.label}
-          </button>
+        {nav.map((n) => (
+          <a key={n.path} href={`#/${n.path}`} className={n.path === section ? 'active' : ''}>
+            {n.label}
+          </a>
         ))}
       </nav>
       <main>
-        {page === 'targets' && <Targets />}
-        {page === 'scenario' && <Placeholder text="Linha do tempo com raias por tipo de falha e curva de carga (marcos 2 e 3)." />}
-        {page === 'run' && <Placeholder text="Gráficos ao vivo de latência, RPS e erro via WebSocket (marco 2)." />}
-        {page === 'report' && <Placeholder text="Veredito, análise da IA e chat (marco 4)." />}
+        {section === 'alvos' && <Targets />}
+        {section === 'cenarios' && !id && <Scenarios />}
+        {section === 'cenarios' && id && <ScenarioEditor id={id === 'novo' ? undefined : id} />}
+        {section === 'execucoes' && !id && <Runs />}
+        {section === 'execucoes' && id && <RunView id={id} />}
+        {section === 'relatorio' && <p className="muted">Em construção: veredito, análise da IA e chat (marco 4).</p>}
       </main>
     </div>
   );
-}
-
-function Placeholder({ text }: { text: string }) {
-  return <p className="muted">Em construção. {text}</p>;
 }

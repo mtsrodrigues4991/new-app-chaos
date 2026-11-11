@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Container, listContainers } from '../api';
+import { api, Container } from '../api';
 
 export default function Targets() {
   const [items, setItems] = useState<Container[]>([]);
@@ -8,7 +8,8 @@ export default function Targets() {
 
   const load = () => {
     setLoading(true);
-    listContainers()
+    api
+      .containers()
       .then((c) => {
         setItems(c);
         setError(null);
@@ -34,6 +35,8 @@ export default function Targets() {
               <th>Imagem</th>
               <th>Estado</th>
               <th>Portas</th>
+              <th>Rede</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -42,7 +45,11 @@ export default function Targets() {
                 <td>{c.name}</td>
                 <td>{c.image}</td>
                 <td>{c.state}</td>
-                <td>{(c.ports ?? []).join(', ')}</td>
+                <td>{c.ports.join(', ')}</td>
+                <td>{c.networks.join(', ')}</td>
+                <td>
+                  <a href={`#/cenarios/novo?container=${encodeURIComponent(c.name)}`}>Criar cenário</a>
+                </td>
               </tr>
             ))}
           </tbody>
