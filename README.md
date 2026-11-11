@@ -108,8 +108,9 @@ make kind-down    # apaga o cluster (e o banco do app que estava nele)
 
 ```bash
 OBS=1 ./scripts/kind-up.sh    # ou: make kind-up OBS=1
-kubectl -n observability port-forward svc/lgtm 3001:3000   # Grafana em http://localhost:3001 (sem login)
 ```
+
+- O Grafana abre pelo próprio app, em http://localhost:3000/grafana/ (sem login e sem port-forward): o backend repassa para o Grafana do cluster. Há um botão **Grafana** na barra lateral, e cada execução no Kubernetes tem **Abrir no Grafana**, já no intervalo da execução e no serviço alvo.
 
 - Instala a imagem [grafana/otel-lgtm](https://github.com/grafana/docker-otel-lgtm) no namespace `observability`: OpenTelemetry Collector, Prometheus, Tempo, Loki, Pyroscope e Grafana num pod só (~1-2 GB de RAM; dados em emptyDir). Na primeira vez o nó baixa ~1 GB.
 - O pix-api passa a carregar o **OpenTelemetry Java agent** e o **Pyroscope Java agent**, sem reconstruir a imagem: um initContainer copia os jars (imagem `deploy/agents`, construída na sua máquina) e o `JAVA_TOOL_OPTIONS` os carrega. Saem métricas da JVM, HTTP e pool do banco a cada 5 s, traces e profiling de CPU e alocação.

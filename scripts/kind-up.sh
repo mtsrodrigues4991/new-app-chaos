@@ -182,5 +182,5 @@ port="$(docker port "$CLUSTER-control-plane" 30080/tcp 2>/dev/null | head -1 | s
 step "Pronto: http://localhost:${port:-$UI_PORT}"
 echo "Alvos (URL base no cenário): demo-api http://demo-api.demo:8080 · pix http://pix-api.pix:8080 · svc-* http://svc-pedido.dorigao:8080"
 if $OBS_ON; then
-  echo "Grafana: kubectl -n observability port-forward svc/lgtm 3001:3000  e abra http://localhost:3001"
+  echo "Grafana: http://localhost:${port:-$UI_PORT}/grafana/ (botão Grafana na barra lateral do app)"
 fi

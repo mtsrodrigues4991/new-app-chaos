@@ -413,3 +413,4 @@ body.print-mode .tab-panel[hidden] { display: flex; }
   pre.code { white-space: pre-wrap; break-inside: avoid; }
   .code-read ul { display: block; }
 }
+.nav-links .trailing { margin-left: auto; color: var(--muted); }

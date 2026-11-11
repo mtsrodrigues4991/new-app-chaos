@@ -55,6 +55,7 @@ spec:
             - { name: OBS_TEMPO_URL, value: {{ .Values.observability.tempoUrl | quote }} }
             - { name: OBS_PYROSCOPE_URL, value: {{ .Values.observability.pyroscopeUrl | quote }} }
             - { name: OBS_GRAFANA_URL, value: {{ .Values.observability.grafanaUrl | quote }} }
+            - { name: OBS_GRAFANA_PROXY, value: {{ .Values.observability.grafanaProxyUrl | quote }} }
             {{- end }}
             - name: ANTHROPIC_API_KEY
               valueFrom:

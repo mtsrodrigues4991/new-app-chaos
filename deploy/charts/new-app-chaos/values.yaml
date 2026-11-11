@@ -29,8 +29,10 @@ observability:
   prometheusUrl: http://lgtm.observability:9090
   tempoUrl: http://lgtm.observability:3200
   pyroscopeUrl: http://lgtm.observability:4040
-  # Endereço do Grafana no seu navegador (para os links da tela); vazio = sem link.
-  grafanaUrl: http://localhost:3001
+  # Endereço do Grafana no seu navegador (para os botões da tela); vazio = sem botão.
+  # /grafana é o próprio app: o backend repassa para grafanaProxyUrl (sem port-forward).
+  grafanaUrl: /grafana
+  grafanaProxyUrl: http://lgtm.observability:3000
 
 # Secret com ANTHROPIC_API_KEY e GITHUB_TOKEN (opcionais). O scripts/kind-up.sh cria a
 # partir do .env; o chart só referencia, para a chave nunca passar pelo values.

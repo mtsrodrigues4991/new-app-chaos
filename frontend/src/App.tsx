@@ -17,15 +17,7 @@ const nav: { path: string; label: string; icon: IconName }[] = [
 ];
 
 // Onde o backend está rodando: aparece no rodapé da barra lateral.
-function Context() {
-  const [h, setH] = useState<Health | null>(null);
-  const [down, setDown] = useState(false);
-  useEffect(() => {
-    api
-      .health()
-      .then(setH)
-      .catch(() => setDown(true));
-  }, []);
+function Context({ h, down }: { h: Health | null; down: boolean }) {
   if (!h && !down) return null;
   const where = !h ? 'Backend fora do ar' : h.kubernetes ? 'Kubernetes' : h.docker ? 'Docker' : 'Sem Docker nem Kubernetes';
   const extra = h?.kubernetes ? ['Chaos Mesh', h.observability ? 'observabilidade ligada' : ''].filter(Boolean).join(' · ') : '';
@@ -44,6 +36,14 @@ function Context() {
 
 export default function App() {
   const [section = 'alvos', id] = useRoute();
+  const [h, setH] = useState<Health | null>(null);
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    api
+      .health()
+      .then(setH)
+      .catch(() => setDown(true));
+  }, []);
   return (
     <div className="layout">
       <nav className="sidebar" aria-label="Principal">
@@ -58,8 +58,15 @@ export default function App() {
               {n.label}
             </a>
           ))}
+          {h?.grafanaUrl && (
+            <a href={`${h.grafanaUrl}/`} target="_blank" rel="noreferrer" title="Grafana da stack de observabilidade (abre em outra aba)">
+              <Icon name="chart" />
+              Grafana
+              <Icon name="external" size={14} className="trailing" />
+            </a>
+          )}
         </div>
-        <Context />
+        <Context h={h} down={down} />
       </nav>
       <main>
         <div className="page">
