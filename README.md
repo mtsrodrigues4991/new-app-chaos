@@ -39,7 +39,7 @@ As falhas de rede usam o módulo `netem` do kernel. A maioria das distribuiçõe
 
 - Frontend: http://localhost:3000 (comece em Alvos → Criar cenário no `demo-api`)
 - Backend: http://localhost:8080/api/health
-- API de exemplo: http://localhost:8081/items
+- API de exemplo: http://localhost:8081/items (collection do Postman com `/health`, `/items` e `/compute` em [examples/demo-api/postman_collection.json](examples/demo-api/postman_collection.json))
 
 ### Desenvolvimento sem Docker
 

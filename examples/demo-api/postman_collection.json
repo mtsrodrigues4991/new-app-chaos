@@ -1,0 +1,113 @@
+{
+  "info": {
+    "name": "demo-api",
+    "description": "API de exemplo do new-app-chaos (examples/demo-api). Sobe junto com `docker compose up` e fica em http://localhost:8081. Use para conferir que o alvo responde antes de rodar carga ou caos. Dentro da rede do Docker (no editor de cenários do app), a URL é http://demo-api:8080.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "maxMs",
+      "value": "1000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.test('responde em menos de ' + pm.collectionVariables.get('maxMs') + ' ms', () => pm.expect(pm.response.responseTime).to.be.below(Number(pm.collectionVariables.get('maxMs'))));",
+              "pm.test('corpo é ok', () => pm.expect(pm.response.text()).to.eql('ok'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": "Verificação de saúde. Responde `ok`. É o endpoint indicado para a sonda do modo só caos."
+      }
+    },
+    {
+      "name": "Listar itens",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.test('responde em menos de ' + pm.collectionVariables.get('maxMs') + ' ms', () => pm.expect(pm.response.responseTime).to.be.below(Number(pm.collectionVariables.get('maxMs'))));",
+              "pm.test('é JSON com uma lista de itens', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.be.an('array').that.is.not.empty;",
+              "  pm.expect(body[0]).to.have.keys('id', 'name');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/items",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "items"
+          ]
+        },
+        "description": "Endpoint rápido que devolve uma lista de itens em JSON. Bom para RPS alto."
+      }
+    },
+    {
+      "name": "Compute (consome CPU)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.test('responde em menos de ' + pm.collectionVariables.get('maxMs') + ' ms', () => pm.expect(pm.response.responseTime).to.be.below(Number(pm.collectionVariables.get('maxMs'))));",
+              "pm.test('corpo é done', () => pm.expect(pm.response.text()).to.eql('done'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/compute",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "compute"
+          ]
+        },
+        "description": "Faz 20 mil hashes SHA-256 por requisição e responde `done`. Bom para ver a latência subir com a carga e o estresse de CPU."
+      }
+    }
+  ]
+}
