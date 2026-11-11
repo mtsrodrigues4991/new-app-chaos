@@ -23,7 +23,12 @@ if [[ -z "$APP_ID" ]]; then
 fi
 az ad sp show --id "$APP_ID" >/dev/null 2>&1 || az ad sp create --id "$APP_ID" >/dev/null
 # Só a branch main pode entrar na Azure (os workflows Ligar/Desligar rodam nela).
-az ad app federated-credential create --id "$APP_ID" --parameters "{\"name\":\"gh-main\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"repo:$REPO:ref:refs/heads/main\",\"audiences\":[\"api://AzureADTokenExchange\"]}" >/dev/null 2>&1 || true
+# O GitHub apresenta o subject com os ids da conta e do repo (formato novo); o antigo fica
+# também, para repos que ainda usam o formato sem ids.
+for subject in "repo:mtsrodrigues4991@58078186/new-app-chaos@1453888163:ref:refs/heads/main" "repo:$REPO:ref:refs/heads/main"; do
+  name="gh-main-$(printf '%s' "$subject" | sha1sum | cut -c1-8)"
+  az ad app federated-credential create --id "$APP_ID" --parameters "{\"name\":\"$name\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"$subject\",\"audiences\":[\"api://AzureADTokenExchange\"]}" >/dev/null 2>&1 || true
+done
 
 echo "==> Permissão de dono SÓ no resource group $RG"
 RG_ID=$(az group show -n "$RG" --query id -o tsv)
