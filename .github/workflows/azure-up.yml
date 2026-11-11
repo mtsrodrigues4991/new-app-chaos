@@ -1,0 +1,203 @@
+# Botão "Ligar": cria o AKS, constrói as imagens no ACR e instala tudo (app com login,
+# Chaos Mesh, Grafana e alvos). No fim, o endereço aparece no resumo da execução.
+name: Azure - Ligar ambiente
+
+on:
+  workflow_dispatch:
+    inputs:
+      observability:
+        description: Instalar o Grafana (otel-lgtm) e instrumentar o pix-api
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: azure-env
+  cancel-in-progress: false
+
+env:
+  # Identidade do GitHub Actions criada pelo scripts/azure-setup.sh (não são segredos).
+  AZURE_CLIENT_ID: 9c800ea0-dece-4d75-a39b-f0b1da116d43
+  AZURE_TENANT_ID: a753c359-4723-4818-bd4b-783b60b63f28
+  AZURE_SUBSCRIPTION_ID: 488eeea4-6eba-44ae-ba31-a4b8a95b7f69
+  ARM_CLIENT_ID: 9c800ea0-dece-4d75-a39b-f0b1da116d43
+  ARM_TENANT_ID: a753c359-4723-4818-bd4b-783b60b63f28
+  ARM_SUBSCRIPTION_ID: 488eeea4-6eba-44ae-ba31-a4b8a95b7f69
+  ARM_USE_OIDC: "true"
+  RG: new-app
+  LOCATION: eastus2
+  TF_DIR: infra/azure
+
+jobs:
+  base:
+    name: Base (estado, ACR, IP fixo)
+    runs-on: ubuntu-latest
+    outputs:
+      sa: ${{ steps.state.outputs.sa }}
+      acr: ${{ steps.out.outputs.acr }}
+      acr_name: ${{ steps.out.outputs.acr_name }}
+      fqdn: ${{ steps.out.outputs.fqdn }}
+      pip: ${{ steps.out.outputs.pip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Storage do estado do Terraform e do certificado
+        id: state
+        run: scripts/azure-state.sh >> "$GITHUB_OUTPUT"
+      - name: terraform apply (só a base)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false -backend-config="resource_group_name=$RG" -backend-config="storage_account_name=${{ steps.state.outputs.sa }}" \
+            -backend-config="container_name=tfstate" -backend-config="key=mvp-plus.tfstate" -backend-config="use_oidc=true"
+          terraform apply -input=false -auto-approve -var cluster_enabled=true \
+            -target=azurerm_public_ip.ingress -target=azurerm_container_registry.acr \
+            -target=azurerm_role_assignment.cluster_network -target=azurerm_consumption_budget_resource_group.budget
+      - name: Saídas
+        id: out
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          echo "acr=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "acr_name=$(terraform output -raw acr_name)" >> "$GITHUB_OUTPUT"
+          echo "fqdn=$(terraform output -raw fqdn)" >> "$GITHUB_OUTPUT"
+          echo "pip=$(terraform output -raw public_ip_name)" >> "$GITHUB_OUTPUT"
+
+  cluster:
+    name: Cluster AKS
+    needs: base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: terraform apply (cluster ligado)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false -backend-config="resource_group_name=$RG" -backend-config="storage_account_name=${{ needs.base.outputs.sa }}" \
+            -backend-config="container_name=tfstate" -backend-config="key=mvp-plus.tfstate" -backend-config="use_oidc=true"
+          terraform apply -input=false -auto-approve -var cluster_enabled=true
+
+  images:
+    name: Imagem ${{ matrix.name }}
+    needs: base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: backend, context: backend }
+          - { name: frontend, context: frontend }
+          - { name: demo-api, context: examples/demo-api }
+          - { name: java-agents, context: deploy/agents }
+          - { name: pix-api, repo: mtsrodrigues4991/itau-case-pix, dockerfile: deploy/targets/pix/Dockerfile }
+          - { name: svc-pedido, repo: Dorigao-LTDA/svc-pedido }
+          - { name: svc-pagamento, repo: Dorigao-LTDA/svc-pagamento }
+          - { name: svc-catalogo, repo: Dorigao-LTDA/svc-catalogo }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Build e push para o ACR
+        env:
+          ACR: ${{ needs.base.outputs.acr }}
+          ACR_NAME: ${{ needs.base.outputs.acr_name }}
+          NAME: ${{ matrix.name }}
+          CONTEXT: ${{ matrix.context }}
+          REPO: ${{ matrix.repo }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: |
+          tag="${GITHUB_SHA::12}"
+          img="$ACR/new-app-chaos-$NAME:$tag"
+          if az acr repository show -n "$ACR_NAME" --image "new-app-chaos-$NAME:$tag" >/dev/null 2>&1; then
+            echo "já existe: $img"; exit 0
+          fi
+          az acr login -n "$ACR_NAME"
+          if [[ -n "$REPO" ]]; then
+            git clone -q --depth 1 "https://github.com/$REPO" /tmp/src
+            CONTEXT=/tmp/src
+          fi
+          args=(-t "$img" "$CONTEXT")
+          [[ -n "$DOCKERFILE" ]] && args=(-f "$DOCKERFILE" "${args[@]}")
+          docker build --platform linux/amd64 "${args[@]}"
+          docker push "$img"
+
+  deploy:
+    name: Instalar no AKS e testar
+    needs: [base, cluster, images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/setup-helm@v4
+      - name: Credenciais do cluster
+        run: az aks get-credentials -g "$RG" -n new-app-chaos --overwrite-existing
+      - name: Certificado HTTPS guardado (se houver)
+        env:
+          SA: ${{ needs.base.outputs.sa }}
+        run: |
+          key=$(az storage account keys list -n "$SA" -g "$RG" --query '[0].value' -o tsv)
+          az storage blob download --account-name "$SA" --account-key "$key" -c tls -n new-app-chaos-tls.yaml -f /tmp/tls.yaml -o none 2>/dev/null \
+            && echo "certificado encontrado" || echo "sem certificado guardado (o Let's Encrypt emite um novo)"
+      - name: Instalar
+        env:
+          ACR: ${{ needs.base.outputs.acr }}
+          FQDN: ${{ needs.base.outputs.fqdn }}
+          PIP_NAME: ${{ needs.base.outputs.pip }}
+          OBS: ${{ inputs.observability && '1' || '0' }}
+          TLS_BACKUP: /tmp/tls.yaml
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          APP_USERS: ${{ secrets.APP_USERS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.CODE_GITHUB_TOKEN }}
+        run: |
+          export TAG="${GITHUB_SHA::12}"
+          scripts/azure-deploy.sh
+      - name: Guardar o certificado para a próxima vez
+        env:
+          SA: ${{ needs.base.outputs.sa }}
+        run: scripts/azure-tls-backup.sh "$SA"
+      - name: Teste de fumaça (HTTPS e login)
+        env:
+          FQDN: ${{ needs.base.outputs.fqdn }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$FQDN/api/health" >/dev/null 2>&1; then ok=1; break; fi
+            sleep 10
+          done
+          [[ -n "$ok" ]] || { echo "::error::https://$FQDN/api/health não respondeu"; curl -kv "https://$FQDN/api/health" || true; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://$FQDN/api/scenarios")
+          [[ "$code" == 401 ]] || { echo "::error::API aberta sem login (HTTP $code)"; exit 1; }
+          body=$(jq -n --arg p "$ADMIN_PASSWORD" '{username:"mateus",password:$p}')
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$body" "https://$FQDN/api/auth/login")
+          [[ "$code" == 200 ]] || { echo "::error::login do admin falhou (HTTP $code)"; exit 1; }
+          {
+            echo "## Ambiente ligado"
+            echo
+            echo "- Endereço: https://$FQDN"
+            echo "- Usuário: \`mateus\` (senha do secret ADMIN_PASSWORD)"
+            echo "- Desligue com o workflow **Azure - Desligar ambiente** quando terminar."
+          } >> "$GITHUB_STEP_SUMMARY"

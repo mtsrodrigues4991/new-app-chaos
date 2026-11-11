@@ -29,6 +29,18 @@ jobs:
           helm template t deploy/charts/new-app-chaos --set ingress.enabled=true --set ingress.host=exemplo.eastus2.cloudapp.azure.com \
             --set auth.enabled=true --set frontend.serviceType=ClusterIP --set backend.k6NodeSelector=agentpool=load \
             --set backend.k6Tolerations=kubernetes.azure.com/scalesetpriority=spot:NoSchedule \
-            --set guard.allowedTargetHosts=demo,pix,dorigao --set guard.aiDailyLimit=50 > /tmp/cloud.yaml
+            --set guard.allowedTargetHosts='demo\,pix\,dorigao' --set guard.aiDailyLimit=50 > /tmp/cloud.yaml
           grep -q 'kind: Ingress' /tmp/cloud.yaml && grep -q AUTH_ENABLED /tmp/cloud.yaml && grep -q K6_TOLERATIONS /tmp/cloud.yaml
           helm template t deploy/charts/new-app-chaos | grep -q 'nodePort: 30080'
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra/azure fmt -check -diff
+      - run: terraform -chdir=infra/azure init -backend=false -input=false && terraform -chdir=infra/azure validate
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning scripts/*.sh
