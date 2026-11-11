@@ -48,6 +48,20 @@ export function duration(r: Run): string {
   return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 }
 
+// Os gráficos se ajustam à largura da tela; antes de imprimir, a página encolhe para a largura
+// do A4 e espera os gráficos se redesenharem, senão eles sairiam cortados no papel.
+function printReport() {
+  document.body.classList.add('print-mode');
+  window.dispatchEvent(new Event('resize'));
+  const done = () => {
+    document.body.classList.remove('print-mode');
+    window.removeEventListener('afterprint', done);
+    window.dispatchEvent(new Event('resize'));
+  };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 400);
+}
+
 const live = (s: RunStatus) => s === 'pending' || s === 'running';
 
 function mergeWindows(prev: Window[], next: Window[]): Window[] {
@@ -137,10 +151,18 @@ export default function RunView({ id }: { id: string }) {
   const mode = run.scenario.mode || 'load';
   const bs = bands(run);
   return (
-    <section>
+    <section className="run-view">
+      <p className="print-only small muted">
+        new-app-chaos · relatório da execução {run.id} · impresso em {new Date().toLocaleString('pt-BR')}
+      </p>
       <div className="title-row">
         <h1>{run.scenarioName}</h1>
         <StatusBadge status={run.status} />
+        {!live(run.status) && (
+          <button className="no-print" onClick={printReport}>
+            Imprimir / salvar PDF
+          </button>
+        )}
         {live(run.status) && (
           <button className="danger" disabled={aborting} onClick={abort}>
             {aborting ? 'Abortando…' : 'Abortar'}
@@ -151,7 +173,7 @@ export default function RunView({ id }: { id: string }) {
         {modeLabel[mode]} · {run.scenario.target.baseUrl}
         {mode === 'chaos' ? ` · sonda ${run.scenario.probePath}` : ` · ${profileLabel[p.type]}, ${p.vus} VUs`} · {p.durationSeconds} s · iniciada em{' '}
         {new Date(run.createdAt).toLocaleString('pt-BR')} · duração {duration(run)} ·{' '}
-        <a href={`#/cenarios/${run.scenarioId}`}>editar cenário</a>
+        <a className="no-print" href={`#/cenarios/${run.scenarioId}`}>editar cenário</a>
       </p>
       {run.status === 'pending' && mode !== 'chaos' && <p className="muted">Preparando o k6 (na primeira vez ele baixa a imagem, pode levar um minuto)…</p>}
       {run.error && <p className="error">{run.error}</p>}
