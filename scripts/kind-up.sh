@@ -41,7 +41,19 @@ build() { # build <imagem> <contexto> [Dockerfile]
   else docker build -q -t "$img" "$ctx" >/dev/null; fi
 }
 
-load() { kind load docker-image --name "$CLUSTER" "$@" >/dev/null; }
+# Carrega imagens no nó do KIND. O `kind load` falha no Docker 29 com o image store do
+# containerd ("content digest ... not found", sobretudo em imagens multiplataforma como a do
+# k6). Nesse caso, exporta só a arquitetura do host e importa direto no containerd do nó.
+load() {
+  local img arch
+  arch="$(docker version -f '{{.Server.Arch}}')"
+  for img in "$@"; do
+    kind load docker-image --name "$CLUSTER" "$img" >/dev/null 2>&1 && continue
+    docker save --platform "linux/$arch" "$img" \
+      | docker exec -i "$CLUSTER-control-plane" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs - >/dev/null \
+      || fail "não consegui carregar a imagem $img no nó do KIND"
+  done
+}
 
 clone() { # clone <url> <pasta>
   if [[ ! -d "$2" ]]; then
