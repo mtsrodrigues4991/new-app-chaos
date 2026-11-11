@@ -644,7 +644,7 @@ func (m *Manager) streamDashboard(ctx context.Context, k6ID, network string, agg
 		ips, err := m.Docker.IPs(ctx, k6ID)
 		if err == nil && ips[network] != "" {
 			url = fmt.Sprintf("http://%s:%d/events", ips[network], dashboardPort)
-			err = load.StreamDashboard(ctx, url, func(s *load.Snapshot) {
+			err = load.StreamDashboard(ctx, url, agg.Start(), func(s *load.Snapshot) {
 				mu.Lock()
 				agg.AddSnapshot(s)
 				mu.Unlock()

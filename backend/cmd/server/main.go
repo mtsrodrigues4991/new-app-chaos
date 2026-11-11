@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/api"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -47,7 +48,14 @@ func main() {
 	log.Printf("imagem auxiliar das falhas de rede: %v", mgr.Chaos.ToolsImages)
 	mgr.Recover(context.Background())
 
-	srv := &api.Server{Docker: dk, Store: st, Runner: mgr}
+	// IA: a chave vem só do ambiente (.env). Sem chave, o app funciona e o botão da IA avisa.
+	key := os.Getenv("ANTHROPIC_API_KEY")
+	if key == "" {
+		log.Printf("aviso: ANTHROPIC_API_KEY não definida; análise por IA desativada até configurar o .env")
+	}
+	reg := ai.NewRegistry(ai.NewAnthropic(key))
+
+	srv := &api.Server{Docker: dk, Store: st, Runner: mgr, AI: reg}
 	log.Printf("backend ouvindo em %s (banco: %s)", addr, dbPath)
 	log.Fatal(http.ListenAndServe(addr, srv.Router()))
 }

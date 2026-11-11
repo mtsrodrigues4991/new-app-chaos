@@ -12,17 +12,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/scenario"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/verdict"
 )
 
 type Server struct {
 	Docker *dockerx.Client // nil se o Docker não estiver acessível
 	Store  *store.Store
 	Runner *runner.Manager
+	AI     *ai.Registry
 }
 
 func (s *Server) Router() http.Handler {
@@ -40,11 +44,19 @@ func (s *Server) Router() http.Handler {
 	r.Put("/api/scenarios/{id}", s.updateScenario)
 	r.Delete("/api/scenarios/{id}", s.deleteScenario)
 	r.Post("/api/scenarios/{id}/runs", s.startRun)
+	r.Put("/api/scenarios/{id}/reference", s.setReference)
 
 	r.Get("/api/runs", s.listRuns)
 	r.Get("/api/runs/{id}", s.getRun)
 	r.Get("/api/runs/{id}/stream", s.streamRun)
 	r.Post("/api/runs/{id}/abort", s.abortRun)
+	r.Post("/api/runs/{id}/analysis", s.analyzeRun)
+	r.Get("/api/runs/{id}/chat", s.getChat)
+	r.Post("/api/runs/{id}/chat", s.postChat)
+	r.Delete("/api/runs/{id}/chat", s.clearChat)
+
+	r.Get("/api/settings/ai", s.getAISettings)
+	r.Put("/api/settings/ai", s.putAISettings)
 	return r
 }
 
@@ -167,26 +179,35 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
-	run, err := s.Store.GetRun(r.Context(), chi.URLParam(r, "id"))
+	d, err := s.runData(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		writeStoreErr(w, err)
 		return
 	}
-	ws, err := s.Store.Windows(r.Context(), run.ID)
+	refID, err := s.Store.Baseline(r.Context(), d.Run.ScenarioID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	faults, err := s.Store.FaultEvents(r.Context(), run.ID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, struct {
+	out := struct {
 		store.Run
-		Windows     []load.Window      `json:"windows"`
-		FaultEvents []store.FaultEvent `json:"faultEvents"`
-	}{run, ws, faults})
+		Windows        []load.Window      `json:"windows"`
+		FaultEvents    []store.FaultEvent `json:"faultEvents"`
+		Verdict        *verdict.Verdict   `json:"verdict,omitempty"` // só depois que a execução termina
+		ReferenceRunID string             `json:"referenceRunId,omitempty"`
+		Analysis       *analysis.Report   `json:"analysis,omitempty"`
+	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID}
+	if finished(d.Run) {
+		out.Verdict = &d.Verdict
+		var rep analysis.Report
+		if err := s.Store.Analysis(r.Context(), d.Run.ID, &rep); err == nil {
+			out.Analysis = &rep
+		} else if !errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) abortRun(w http.ResponseWriter, r *http.Request) {

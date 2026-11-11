@@ -4,12 +4,13 @@ import Scenarios from './pages/Scenarios';
 import ScenarioEditor from './pages/ScenarioEditor';
 import Runs from './pages/Runs';
 import RunView from './pages/RunView';
+import Settings from './pages/Settings';
 
 const nav = [
   { path: 'alvos', label: 'Alvos' },
   { path: 'cenarios', label: 'Cenários' },
   { path: 'execucoes', label: 'Execuções' },
-  { path: 'relatorio', label: 'Relatório' },
+  { path: 'configuracoes', label: 'Configurações' },
 ];
 
 export default function App() {
@@ -30,7 +31,7 @@ export default function App() {
         {section === 'cenarios' && id && <ScenarioEditor id={id === 'novo' ? undefined : id} />}
         {section === 'execucoes' && !id && <Runs />}
         {section === 'execucoes' && id && <RunView id={id} />}
-        {section === 'relatorio' && <p className="muted">Em construção: veredito, análise da IA e chat (marco 4).</p>}
+        {section === 'configuracoes' && <Settings />}
       </main>
     </div>
   );

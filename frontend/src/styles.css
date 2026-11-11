@@ -132,3 +132,49 @@ input:disabled { opacity: 0.5; }
 .fault-form .row { margin-top: 0; }
 .fault-form input { width: 120px; }
 .fault-list { margin: 0 0 16px; font-size: 14px; }
+
+/* Marco 4: veredito, análise da IA e chat */
+.verdict { display: flex; gap: 20px; align-items: flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 0 0 16px; }
+.verdict h2 { margin: 0; font-size: 18px; }
+.verdict-body { flex: 1; min-width: 0; }
+.verdict-body p { margin: 4px 0; }
+.score { width: 112px; flex-shrink: 0; text-align: center; border-radius: 8px; padding: 12px 8px; border: 2px solid var(--status-neutral); }
+.score.resiliente { border-color: var(--status-good); }
+.score.atencao { border-color: var(--status-warning); }
+.score.fragil { border-color: var(--status-critical); }
+.score-value { font-size: 40px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.score-label { margin-top: 6px; font-size: 14px; font-weight: 600; }
+.grade-text.fragil { color: var(--status-critical); }
+.checks { list-style: none; padding: 0; margin: 4px 0 8px; font-size: 14px; }
+.checks li { padding: 2px 0; }
+.checks li.pass span { color: var(--status-good); font-weight: 700; }
+.checks li.fail span { color: var(--status-critical); font-weight: 700; }
+button.ref-on { border-color: var(--status-warning); }
+.ai { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 16px; max-width: 900px; }
+.ai h2 { margin: 0; font-size: 20px; }
+.report h3 { font-size: 15px; margin: 18px 0 6px; }
+.report p, .report li { line-height: 1.5; }
+.report li { margin-bottom: 4px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--status-neutral); }
+.pill.bad { border-color: var(--status-critical); color: var(--status-critical); }
+.pill.good { border-color: var(--status-good); color: var(--status-good); }
+.chat { margin-top: 24px; }
+.chat h3 { margin: 0; font-size: 15px; }
+.chat-log { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; line-height: 1.5; white-space: pre-wrap; }
+.msg p { margin: 0 0 8px; white-space: normal; }
+.msg p:last-child, .msg ul:last-child, .msg ol:last-child { margin-bottom: 0; }
+.msg ul, .msg ol { margin: 0 0 8px; padding-left: 20px; white-space: normal; }
+.msg.user { align-self: flex-end; background: var(--surface-2); }
+.msg.assistant { align-self: flex-start; border: 1px solid var(--border); white-space: normal; }
+.suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.suggestions button { font-size: 13px; }
+.chat-input { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input textarea { flex: 1; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-1); color: inherit; resize: vertical; }
+.notice { border: 1px solid var(--status-warning); border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.5; }
+.ok-text { color: var(--status-good); }
+code { font-size: 0.92em; background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+@media (max-width: 640px) {
+  .verdict { flex-direction: column; }
+  .msg { max-width: 100%; }
+}

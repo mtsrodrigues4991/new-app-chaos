@@ -73,6 +73,27 @@ CREATE TABLE IF NOT EXISTS run_faults (
   data     TEXT NOT NULL,
   PRIMARY KEY (run_id, fault_id)
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_analyses (
+  run_id     TEXT PRIMARY KEY,
+  data       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_chat (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id     TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS run_chat_run ON run_chat(run_id, id);
+CREATE TABLE IF NOT EXISTS scenario_baselines (
+  scenario_id TEXT PRIMARY KEY,
+  run_id      TEXT NOT NULL
+);
 `
 
 // Open abre (ou cria) o banco no caminho indicado.
@@ -159,7 +180,8 @@ func (s *Store) DeleteScenario(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	_, err = s.db.ExecContext(ctx, `DELETE FROM scenario_baselines WHERE scenario_id = ?`, id)
+	return err
 }
 
 // --- execuções ---
