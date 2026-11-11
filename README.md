@@ -31,6 +31,7 @@ Marcos 1 (esqueleto), 2 (carga), 3 (caos) e 4 (IA) prontos:
 - **Análise com IA, sob demanda:** o botão "Analisar com IA" manda as evidências da execução (cenário, veredito, falhas com instantes reais, série por segundo com carga, sonda, CPU e memória) e salva um relatório com resumo, ponto de quebra, explicação da nota, efeito de cada falha, causas prováveis e correções.
   - **Regressão:** marque uma execução como referência do cenário (☆ no veredito). As próximas análises do mesmo cenário trazem a comparação com ela. Nunca compara com outro cenário ou alvo.
   - **Chat** em cada execução: a IA vê a execução, o relatório, a referência e o histórico do mesmo cenário. A conversa fica salva.
+  - **Relatório imprimível:** o botão "Imprimir / salvar PDF" na execução gera um relatório em A4, sempre em tema claro, com números, veredito, falhas, gráficos e a análise da IA (sem o chat).
   - **Configurações:** escolhe provedor e modelo (padrão Claude Opus 5.5; Sonnet 5.5 e Haiku 5.5 são mais baratos). A camada de provedor (`backend/internal/ai`) é trocável.
 
 Backlog: curva de carga desenhável, falhas combinadas, banda/DNS/disco, falhas na entrada (ingress).

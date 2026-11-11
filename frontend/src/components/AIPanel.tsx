@@ -49,8 +49,9 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
           )}
         </p>
       )}
+      {!rep && <p className="print-only">Ainda não há análise da IA para esta execução.</p>}
       {!rep && !busy && (
-        <p className="muted">
+        <p className="muted no-print">
           A análise só roda quando você pede. Ela resume a execução, aponta o ponto de quebra, explica a nota e sugere causas e correções.
           {hasRef
             ? ' Como este cenário tem uma execução de referência, ela também compara as duas.'
@@ -178,7 +179,7 @@ function Chat({ runId }: { runId: string }) {
   };
 
   return (
-    <div className="chat">
+    <div className="chat no-print">
       <div className="title-row">
         <h3>Conversar sobre esta execução</h3>
         {msgs.length > 0 && (
