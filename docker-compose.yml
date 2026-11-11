@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      # Acesso ao Docker local para listar alvos e controlar containers.
+      # Atenção: isso dá ao backend controle total do Docker da máquina.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # Imagem do injetor de falhas: só é construída aqui; o backend sobe uma
+  # instância por execução, ligada à rede do container alvo.
+  injector:
+    build: ./injector
+    image: new-app-chaos/injector:dev
+    profiles: ["build-only"]
+
+  # API de exemplo para testar o app sem precisar de outro projeto.
+  demo-api:
+    build: ./examples/demo-api
+    ports:
+      - "8081:8080"

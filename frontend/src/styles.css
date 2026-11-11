@@ -1,0 +1,12 @@
+:root { font-family: system-ui, sans-serif; color-scheme: light dark; }
+body { margin: 0; }
+.layout { display: flex; min-height: 100vh; }
+nav { display: flex; flex-direction: column; gap: 4px; padding: 16px; width: 200px; border-right: 1px solid #8884; }
+nav strong { margin-bottom: 12px; }
+nav button { text-align: left; background: none; border: none; padding: 8px; border-radius: 6px; cursor: pointer; color: inherit; }
+nav button.active { background: #8882; font-weight: 600; }
+main { flex: 1; padding: 24px; }
+table { border-collapse: collapse; margin-top: 16px; width: 100%; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #8883; }
+.muted { opacity: 0.7; }
+.error { color: #d33; }
