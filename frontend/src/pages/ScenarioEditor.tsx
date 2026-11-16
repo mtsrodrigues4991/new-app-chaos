@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api, Container, defaultSLO, DeploymentInfo, Endpoint, Fault, FaultType, Health, Mode, Platform, ProfileType, Scenario, SLO, profileStages, targetPlatform } from '../api';
+import { api, Container, defaultSLO, DeploymentInfo, Endpoint, Fault, FaultType, Health, Mode, Platform, ProfileType, Scenario, SLO, openModel, profilePeak, profileStages, targetPlatform } from '../api';
 import Timeline, { freeSlot } from '../components/Timeline';
 import { faultMeta, faultTypes, newFaultId } from '../faults';
 import { go, query } from '../router';
@@ -12,9 +12,9 @@ export const profileLabel: Record<ProfileType, string> = {
 };
 
 const profileHelp: Record<ProfileType, string> = {
-  ramp: 'Sobe de 0 até o número de VUs ao longo de toda a duração. Bom para achar o ponto de quebra.',
+  ramp: 'Sobe de 0 até o pico ao longo de toda a duração. Bom para achar o ponto de quebra.',
   plateau: 'Sobe em 10% do tempo, mantém a carga e desce nos 10% finais. Bom para ver estabilidade.',
-  spike: 'Carga base (1/5 dos VUs) com um pico até o máximo no meio. Bom para ver recuperação.',
+  spike: 'Carga base (1/5 do pico) com um pico até o máximo no meio. Bom para ver recuperação.',
 };
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -48,7 +48,7 @@ const empty: Draft = {
 export function scenarioSummary(s: Scenario): string {
   const mode = s.mode || 'load';
   const parts: string[] = [modeLabel[mode]];
-  if (mode !== 'chaos') parts.push(`${profileLabel[s.profile.type]}, ${s.profile.vus} VUs`);
+  if (mode !== 'chaos') parts.push(`${profileLabel[s.profile.type]}, ${profilePeak(s.profile)}`);
   const n = s.faults?.length ?? 0;
   if (mode !== 'load') parts.push(`${n} falha${n === 1 ? '' : 's'}`);
   parts.push(`${s.profile.durationSeconds} s`);
@@ -163,6 +163,13 @@ export default function ScenarioEditor({ id }: { id?: string }) {
   const sel = faults.find((f) => f.id === selected) ?? null;
   const setSel = (patch: Partial<Fault>) => setFaults(faults.map((f) => (f.id === selected ? { ...f, ...patch } : f)));
   const duration = draft.profile.durationSeconds;
+  const open = openModel(draft.profile);
+  // Ao ligar a taxa de chegada, sugere VUs pré-alocados para respostas de até ~0,5 s.
+  const setModel = (toOpen: boolean) => {
+    if (toOpen === open) return;
+    const p = draft.profile;
+    set({ profile: toOpen ? { ...p, rate: 100, vus: Math.max(p.vus, 50) } : { ...p, rate: undefined } });
+  };
   const issues = draft.mode === 'load' ? [] : faultIssues(faults, duration);
 
   const addFault = (type: FaultType) => {
@@ -416,15 +423,49 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             </label>
           ))}
         </div>
+        <div className="profile-types">
+          <label className={`choice ${!open ? 'selected' : ''}`}>
+            <input type="radio" name="model" checked={!open} onChange={() => setModel(false)} />
+            <strong>Usuários virtuais</strong>
+            <span className="muted">Cada usuário espera a resposta antes do próximo pedido. Se a API fica lenta, a carga cai junto.</span>
+          </label>
+          <label className={`choice ${open ? 'selected' : ''}`}>
+            <input type="radio" name="model" checked={open} onChange={() => setModel(true)} />
+            <strong>Taxa de chegada</strong>
+            <span className="muted">Requisições por segundo fixas, responda a API rápido ou devagar. Use para comparar duas versões.</span>
+          </label>
+        </div>
         <div className="row">
+          {open && (
+            <label>
+              Requisições por segundo (pico)
+              <input
+                type="number"
+                min={1}
+                max={20000}
+                value={draft.profile.rate ?? 0}
+                onChange={(e) => set({ profile: { ...draft.profile, rate: Math.max(1, Number(e.target.value)) } })}
+              />
+            </label>
+          )}
           <label>
-            Usuários virtuais (pico)
+            {open ? 'VUs pré-alocados' : 'Usuários virtuais (pico)'}
             <input
               type="number"
               min={1}
               max={5000}
               value={draft.profile.vus}
               onChange={(e) => set({ profile: { ...draft.profile, vus: Number(e.target.value) } })}
+            />
+          </label>
+          <label>
+            Aquecimento (segundos)
+            <input
+              type="number"
+              min={0}
+              max={3600}
+              value={draft.profile.warmupSeconds ?? 0}
+              onChange={(e) => set({ profile: { ...draft.profile, warmupSeconds: Number(e.target.value) || undefined } })}
             />
           </label>
           <label>
@@ -438,9 +479,15 @@ export default function ScenarioEditor({ id }: { id?: string }) {
             />
           </label>
         </div>
+        <p className="muted small">
+          {open
+            ? 'VUs pré-alocados são o teto de requisições simultâneas: taxa × tempo de resposta esperado em segundos, com folga. Se faltar, o k6 descarta requisições e a execução avisa. '
+            : ''}
+          As requisições iniciadas durante o aquecimento ficam fora dos números da janela estável e por endpoint.
+        </p>
         {draft.mode === 'load' && (
         <div className="chart small">
-          <div className="chart-title">Prévia: usuários virtuais ao longo do tempo</div>
+          <div className="chart-title">Prévia: {open ? 'requisições por segundo' : 'usuários virtuais'} ao longo do tempo</div>
           <ResponsiveContainer width="100%" height={160}>
             <AreaChart data={preview} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
               <CartesianGrid stroke="var(--grid)" vertical={false} />
@@ -448,7 +495,7 @@ export default function ScenarioEditor({ id }: { id?: string }) {
               <YAxis allowDecimals={false} width={40} stroke="var(--axis)" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
               <Tooltip
                 contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--grid)' }}
-                formatter={(v: number) => [`${v} VUs`, 'Usuários']}
+                formatter={(v: number) => (open ? [`${v} req/s`, 'Taxa'] : [`${v} VUs`, 'Usuários'])}
                 labelFormatter={(t: number) => `${t} s`}
               />
               <Area type="linear" dataKey="vus" stroke="var(--series-1)" strokeWidth={2} fill="var(--series-1)" fillOpacity={0.15} isAnimationActive={false} />
@@ -668,6 +715,34 @@ function CodeFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => 
         <label>
           Subpasta (opcional)
           <input value={code.path ?? ''} placeholder="ex.: services/api" onChange={(e) => setCode({ path: e.target.value })} />
+        </label>
+      </div>
+      <p className="muted small">
+        Para uma correção sugerida poder virar um PR em rascunho, diga como construir e testar o repositório. O build roda num pod isolado do
+        cluster, com essa imagem e esse comando, antes de qualquer PR ser aberto. Vazio = correções automáticas desligadas neste cenário.
+      </p>
+      <div className="row">
+        <label>
+          Imagem de build (opcional)
+          <input value={code.testImage ?? ''} placeholder="ex.: maven:3.9-eclipse-temurin-17" onChange={(e) => setCode({ testImage: e.target.value })} />
+        </label>
+        <label>
+          Comando de build e testes
+          <input value={code.testCommand ?? ''} placeholder="ex.: mvn -B -q verify" onChange={(e) => setCode({ testCommand: e.target.value })} />
+        </label>
+      </div>
+      <p className="muted small">
+        Para a correção ser re-testada depois do PR (versão atual contra a do PR, num experimento A/B com o resultado comentado no PR), diga como o
+        CI do repositório constrói a imagem. O modelo do workflow está em <code>deploy/target-ci/nac-build.yml</code>. Vazio = o ciclo para no PR.
+      </p>
+      <div className="row">
+        <label>
+          Workflow de build (opcional)
+          <input value={code.buildWorkflow ?? ''} placeholder="ex.: nac-build.yml" onChange={(e) => setCode({ buildWorkflow: e.target.value })} />
+        </label>
+        <label>
+          Imagem publicada (sem tag)
+          <input value={code.image ?? ''} placeholder="ex.: ghcr.io/dono/repo" onChange={(e) => setCode({ image: e.target.value })} />
         </label>
       </div>
     </fieldset>

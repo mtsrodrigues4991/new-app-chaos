@@ -24,10 +24,12 @@ e uma análise da IA dizendo o que quebrou, por quê e onde corrigir no código.
 
 | | |
 |---|---|
-| 📈 **Carga** | Monte os endpoints e o perfil (rampa, patamar, pico). O k6 roda e os gráficos aparecem ao vivo: latência p50/p95/p99, RPS, erros, CPU e memória do alvo. |
+| 📈 **Carga** | Monte os endpoints e o perfil (rampa, patamar, pico), em usuários virtuais ou em requisições por segundo fixas. O k6 roda e os gráficos aparecem ao vivo: latência p50/p95/p99, RPS, erros, CPU e memória do alvo. |
 | 💥 **Caos** | Arraste falhas numa linha do tempo: latência, perda de pacotes, CPU, memória e kill. No Kubernetes também falhas de disco, DNS e HTTP, inclusive em dependências como o Postgres. |
 | 🎯 **Veredito** | SLOs editáveis e uma nota de resiliência de 0 a 100 (inspirada no Resiliency Score do krkn), sem IA e reproduzível. |
 | 🤖 **IA** | Relatório sob demanda com ponto de quebra, causas e correções que apontam arquivo e linha do seu repositório. Compara com uma execução de referência e tem chat por execução. |
+| ⚖️ **Antes e depois** | Experimento A/B: o mesmo teste contra duas versões, repetido e intercalado, com decisão estatística (melhorou, piorou, sem diferença ou inconclusivo) e teste A/A para medir o ruído do ambiente. |
+| 🔧 **Correção** | Uma sugestão da IA vira um patch conferido e, depois que uma pessoa aprova, um PR em rascunho: aplicado num pod isolado, com o build e os testes do repositório passando antes. Depois o app re-testa a versão do PR contra a atual e comenta o resultado estatístico no PR. O merge é sempre seu. |
 | 🔭 **Observabilidade** | Opcional: Grafana com Prometheus, Loki, Tempo e Pyroscope. Heap, GC, traces lentos e profiling entram na análise. |
 
 Detalhes de cada funcionalidade em [docs/funcionalidades.md](docs/funcionalidades.md).
@@ -233,6 +235,10 @@ docs/                especificação e funcionalidades
 - **MVP (Docker):** esqueleto, carga com k6 e gráficos ao vivo, 5 falhas numa linha do tempo arrastável, veredito com nota, análise e chat com IA, relatório imprimível e IA lendo o código no GitHub.
 - **MVP2 (Kubernetes local):** KIND + Helm, falhas pelo Chaos Mesh, falhas em dependências, disco, DNS e HTTP, logs e eventos do Kubernetes na IA, stack Grafana opcional, visual novo.
 - **MVP plus (Azure):** AKS com URL pública, HTTPS e login, liga e desliga pelo GitHub Actions, k6 em nó spot separado e Grafana isolado dos alvos.
+- **Fase 0 da [análise de evolução](docs/analise-evolucao.md), medição confiável:** carga por taxa de chegada, aquecimento, números da execução inteira e por endpoint, versão testada (imagem e commit) em cada execução, IA lendo o commit que rodou e trava de namespaces. Resultado medido em [docs/resultados/fase-0-medicao-confiavel.md](docs/resultados/fase-0-medicao-confiavel.md).
+- **Fase 1, antes e depois com estatística:** experimentos A/B e A/A com execuções intercaladas, regra de decisão sem IA (intervalo de 95% por bootstrap, limite prático, guardas e piso de ruído). Prova em [docs/resultados/fase-1-experimentos.md](docs/resultados/fase-1-experimentos.md).
+- **Fase 2, da sugestão ao PR:** patch conferido, tentativa com aprovação, sandbox e PR em rascunho. Provada com um PR real: [itau-case-pix#1](https://github.com/mtsrodrigues4991/itau-case-pix/pull/1).
+- **Fase 3, re-teste depois do PR:** build das versões no CI do alvo, cópias A e B, experimento e comentário no PR. Implementada e testada com simuladores; o que falta para rodar de ponta a ponta está em [docs/analise-evolucao.md](docs/analise-evolucao.md).
 
 ### 📋 Backlog
 
@@ -248,7 +254,8 @@ docs/                especificação e funcionalidades
 - [ ] Instrumentação OpenTelemetry nos alvos svc-* da Dorigao
 
 **Nuvem**
-- [ ] Histórico persistente na Azure (hoje some ao desligar)
+- [x] Histórico persistente na Azure: o banco é guardado na storage account ao desligar e devolvido ao ligar (`scripts/azure-db-backup.sh`). Sem backup periódico: o que rodou desde o último "Desligar" se perde se o cluster for apagado por fora
+- [ ] Acesso de visualizador: quem não tem login vê execuções escolhidas, só leitura (para divulgar resultados)
 - [ ] Domínio próprio
 - [ ] Perfis de acesso (hoje quem entra pode tudo)
 - [ ] AWS (EKS)

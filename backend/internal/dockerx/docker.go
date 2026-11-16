@@ -602,3 +602,44 @@ func (c *Client) Self(ctx context.Context) (id string, images []string) {
 	}
 	return raw.ID, images
 }
+
+// ContainerImage é a imagem em uso por um container.
+type ContainerImage struct {
+	Name string // como foi pedida ao criar o container (nome:tag)
+	ID   string // id da imagem (sha256:...)
+	// Digest é o digest do registry (nome@sha256:...); vazio para imagens construídas localmente.
+	Digest string
+	// Labels são os rótulos do container, que herdam os da imagem (ex.: os rótulos OCI).
+	Labels map[string]string
+}
+
+// ContainerImage devolve a imagem em uso por um container.
+func (c *Client) ContainerImage(ctx context.Context, idOrName string) (ContainerImage, error) {
+	var raw struct {
+		Image  string `json:"Image"`
+		Config struct {
+			Image  string            `json:"Image"`
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(idOrName)+"/json", nil, &raw); err != nil {
+		return ContainerImage{}, err
+	}
+	out := ContainerImage{Name: raw.Config.Image, ID: raw.Image, Labels: raw.Config.Labels}
+	// O digest só existe para imagens que vieram de (ou foram para) um registry. Com o image
+	// store do containerd o id pode não resolver; tenta também pelo nome. Sem digest, fica o id.
+	for _, ref := range []string{raw.Image, raw.Config.Image} {
+		var img struct {
+			RepoDigests []string `json:"RepoDigests"`
+		}
+		if ref == "" || c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(ref)+"/json", nil, &img) != nil {
+			continue
+		}
+		if len(img.RepoDigests) > 0 {
+			sort.Strings(img.RepoDigests)
+			out.Digest = img.RepoDigests[0]
+		}
+		break
+	}
+	return out, nil
+}

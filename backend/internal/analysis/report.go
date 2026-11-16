@@ -3,12 +3,14 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/patch"
 )
 
 // Content é o relatório que a IA devolve (formato garantido pelo JSON Schema abaixo).
@@ -42,6 +44,15 @@ type Fix struct {
 	URL  string `json:"url,omitempty"` // link para o arquivo no GitHub, no commit analisado
 	// NewFile marca um arquivo citado que não existe no repositório (a criar).
 	NewFile bool `json:"newFile,omitempty"`
+	// Diff é a correção como patch (diff unificado, relativo à raiz da aplicação). Metric e
+	// Expected dizem o que deve melhorar e quanto: é a métrica de um experimento A/B da correção.
+	Diff     string `json:"diff,omitempty"`
+	Metric   string `json:"metric,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	// Applies diz se o patch se aplica ao commit analisado (git apply --check); nil = não
+	// conferido (sem patch, ou sem git no backend). ApplyError traz o motivo quando não aplica.
+	Applies    *bool  `json:"applies,omitempty"`
+	ApplyError string `json:"applyError,omitempty"`
 }
 
 // CodeInfo diz qual versão do código a IA leu.
@@ -88,7 +99,10 @@ func reportSchema(withRegression, withCode bool) map[string]any {
 		fix["file"] = str("Arquivo a mudar (ou a criar), relativo à raiz do repositório, exatamente como aparece na árvore e nas ferramentas; vazio se a correção não é no código")
 		fix["line"] = map[string]any{"type": "integer", "description": "Linha do ponto a mudar; 0 se não se aplica"}
 		fix["code"] = str("Trecho de código ou configuração proposto (só o trecho alterado); vazio se não se aplica")
-		fixRequired = append(fixRequired, "file", "line", "code")
+		fix["diff"] = str("A mesma correção como patch aplicável: diff unificado (linhas ---, +++ e @@), caminhos relativos à raiz do repositório com os prefixos a/ e b/, e pelo menos 3 linhas de contexto copiadas exatamente do arquivo; vazio se a correção não é uma mudança de arquivo do repositório")
+		fix["metric"] = str("A métrica que esta correção deve melhorar, uma só: p50, p95, p99, avg, error_rate ou score; se for de um endpoint, diga qual (ex.: p95 de GET /pix-keys)")
+		fix["expected"] = str("Quanto a métrica deve melhorar, com número e condição (ex.: p95 de 800 ms para menos de 300 ms com 200 req/s); é a hipótese que um experimento A/B vai conferir")
+		fixRequired = append(fixRequired, "file", "line", "code", "diff", "metric", "expected")
 	}
 	props := map[string]any{
 		"summary":          str("Resumo em 3 a 6 frases: o que foi testado, como a aplicação se comportou e o veredito."),
@@ -122,6 +136,8 @@ Analisa execuções do app new-app-chaos: carga com k6 e/ou falhas injetadas no 
 Como ler os dados:
 - t é o segundo desde o início da execução. A coluna "falha" diz qual falha estava ativa naquele segundo.
 - Latência e erro ficam vazios num segundo sem requisição concluída. "presa" > 0 significa usuários virtuais ativos e nenhuma resposta (alvo travado ou fora do ar); conte isso como indisponibilidade.
+- "Resumo da execução inteira e por endpoint", quando vier, traz os percentis calculados pelo k6 sobre todas as requisições: "overall" cobre a execução toda e "steady" só as requisições iniciadas depois do aquecimento (warmupSeconds); "endpoints" são os números da janela estável por endpoint. Para dizer qual endpoint é lento ou falha, use esses números, e não a série por segundo (que mistura todos). No "Resumo numérico", p95MedianMs e p95MaxMs são a mediana e o máximo dos p95 de cada segundo, não o p95 da execução. openModel=true é carga por taxa de chegada (a vazão não depende da latência); com openModel=false a vazão cai quando a API fica lenta, então menos requisições não significa menos demanda. Se houver "warnings" (ex.: iterações descartadas), a execução não serve para comparação: diga isso.
+- "Versão testada" diz quais imagens e qual commit rodaram. Ao comparar com a referência, confira se a versão mudou; se for a mesma, a diferença não vem do código. "mixed" significa pods com versões diferentes durante o teste.
 - cpu_pct é do alvo (100 = 1 núcleo inteiro); mem_mb é a memória usada. No Kubernetes são a soma dos pods do Deployment, vindas do metrics-server, que atualiza a cada ~15 s (valores repetidos entre leituras são normais). pods_prontos/pods_total mostram quantos pods estavam prontos (pior momento do bloco).
 - O veredito e a nota (0 a 100) foram calculados pelo app a partir dos SLOs do cenário, sem IA: cada falha vale 70% pelo tempo dentro dos SLOs enquanto ativa e 30% pela recuperação (cheia até 5 s, zero a partir de 60 s); com falhas, a linha de base pesa 20% e as falhas 80%. Explique a nota, não a recalcule nem a contradiga.
 - Quando vierem "Eventos do Kubernetes" e "Logs dos containers", o t de cada linha está na mesma escala da série (segundos desde o início). Cruze-os com a coluna "falha" e as métricas: diga o que o alvo e as dependências registraram durante cada falha (ex.: erro de conexão com o banco, pool esgotado, timeout, reinício, readiness falhando) e quanto tempo depois voltaram ao normal. Cite a linha ou o evento com o t. Linhas "[xN até t=...]" se repetiram N vezes. Quando vier "Telemetria da aplicação", use-a para explicar o porquê: heap e pausas de GC, threads, requisições recebidas (taxa, p95, 5xx), chamadas de saída, pool de conexões do banco (em uso, esperando conexão, tempo de espera), os traces com erro e lentos (os spans dizem onde o tempo foi gasto e qual exceção ocorreu) e o profiling (funções que mais consumiram CPU ou alocaram memória na execução inteira). Cite valores e o t. Diga quando uma métrica que ajudaria não existe. As séries de taxa e p95 do Prometheus chegam ~5 a 15 s atrasadas em relação à sonda, à série do k6 e à coluna "falha" (o histograma é registrado quando a requisição termina, e a taxa usa uma janela de 10 s): compare pelo formato e pela ordem dos eventos, não pelo segundo exato. O profiling já vem sem o custo do próprio agente de observabilidade. Os eventos do Kubernetes têm precisão de 1 s (o instante é truncado), então podem aparecer até ~1 s antes do que a série e os logs mostram; não trate essa diferença como atraso ou relógio errado. Se os logs não mostram nada durante uma falha, diga isso; não invente mensagens.
@@ -142,9 +158,13 @@ func codeInstructions(b *coderepo.Browser) string {
 	if s.Path != "" {
 		where += " (subpasta " + s.Path + ")"
 	}
+	pinned := "Este é o topo do branch agora: a imagem testada não declara o commit, então o código pode ser diferente do que rodou. Diga isso quando uma conclusão depender de uma linha específica."
+	if s.Pinned {
+		pinned = "Este é o commit que estava implantado durante o teste (declarado pela imagem do alvo)."
+	}
 	return fmt.Sprintf(`
 
-Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação.
+Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação. %s
 
 Arquivos do repositório:
 <arvore>
@@ -163,10 +183,16 @@ Regras para citar código:
 - Antes de supor uma biblioteca ou recurso (ex.: Spring Boot Actuator, Resilience4j), confira no arquivo de dependências; se não estiver, inclua a dependência na sugestão.
 - Para um arquivo que ainda não existe (ex.: Dockerfile), use o caminho onde ele deve ser criado, line 0, e diga que é um arquivo novo.
 - Link de um arquivo no GitHub: %s (troque CAMINHO e N).`,
-		where, s.Branch, s.Commit, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
+		where, s.Branch, s.Commit, pinned, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
 }
 
-const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.`
+const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.
+
+Preencha também diff com a mesma correção como patch, porque ele será conferido com git apply e pode virar um pull request:
+- Formato de diff unificado: "--- a/CAMINHO", "+++ b/CAMINHO" e blocos "@@ -linha,quantidade +linha,quantidade @@". Para arquivo novo, "--- /dev/null".
+- As linhas de contexto e as linhas removidas têm que ser cópias exatas do arquivo que você abriu com read_file, com a mesma indentação. O número e a barra que o read_file mostra antes de cada linha não fazem parte do arquivo: não copie.
+- Uma correção por patch, com o mínimo de linhas. Não inclua mudanças de formatação.
+- Em metric e expected, diga a métrica que deve melhorar e quanto: é o que um experimento A/B vai medir depois.`
 
 const codeChatTask = `Para perguntas sobre o código, use as ferramentas. Ao citar um arquivo, use um link markdown no formato [caminho:linha](link do GitHub).`
 
@@ -272,6 +298,7 @@ func Analyze(ctx context.Context, p ai.Provider, model string, in Input) (Report
 		rep.Code = &CodeInfo{Snapshot: in.Code.Snap, FilesRead: append([]string{}, in.Code.Read...)}
 		for i := range rep.Content.Fixes {
 			checkFix(in.Code, &rep.Content.Fixes[i])
+			checkPatch(ctx, in.Code, &rep.Content.Fixes[i])
 		}
 	}
 	return rep, nil
@@ -299,4 +326,30 @@ func Chat(ctx context.Context, p ai.Provider, model string, in Input, history []
 		return "", resp, err
 	}
 	return strings.TrimSpace(resp.Text), resp, nil
+}
+
+// checkPatch confere se o patch de uma correção se aplica ao commit analisado. A sugestão vira
+// "aplica" ou "não aplica" antes de alguém gastar tempo com ela.
+func checkPatch(ctx context.Context, b *coderepo.Browser, f *Fix) {
+	f.Applies, f.ApplyError = nil, ""
+	f.Diff = strings.TrimSpace(f.Diff)
+	if f.Diff == "" {
+		return
+	}
+	f.Diff += "\n"
+	no := false
+	if _, err := patch.Parse(f.Diff); err != nil {
+		f.Applies, f.ApplyError = &no, err.Error()
+		return
+	}
+	err := patch.Check(ctx, b.Snap.Root, f.Diff)
+	switch {
+	case errors.Is(err, patch.ErrNoGit):
+		f.ApplyError = err.Error() // não conferido: Applies fica nil
+	case err != nil:
+		f.Applies, f.ApplyError = &no, err.Error()
+	default:
+		yes := true
+		f.Applies = &yes
+	}
 }

@@ -8,7 +8,7 @@ if ! az storage account show -n "$sa" -g "$RG" -o none 2>/dev/null; then
     --min-tls-version TLS1_2 --allow-blob-public-access false -o none >&2
 fi
 key=$(az storage account keys list -n "$sa" -g "$RG" --query '[0].value' -o tsv)
-for c in tfstate tls; do
+for c in tfstate tls db; do
   az storage container create -n "$c" --account-name "$sa" --account-key "$key" -o none >&2
 done
 echo "sa=$sa"

@@ -58,7 +58,18 @@ export type Endpoint = {
 
 export type ProfileType = 'ramp' | 'plateau' | 'spike';
 
-export type Profile = { type: ProfileType; vus: number; durationSeconds: number };
+// Com rate > 0 a carga é por taxa de chegada (modelo aberto): o perfil é em requisições por
+// segundo e vus são os VUs pré-alocados. Sem rate, o perfil é em VUs (modelo fechado).
+export type Profile = { type: ProfileType; vus: number; durationSeconds: number; rate?: number; warmupSeconds?: number };
+
+export function openModel(p: Profile): boolean {
+  return (p.rate ?? 0) > 0;
+}
+
+// Carga no pico, para mostrar: "200 req/s" ou "20 VUs".
+export function profilePeak(p: Profile): string {
+  return openModel(p) ? `${p.rate} req/s` : `${p.vus} VUs`;
+}
 
 export type Mode = 'load' | 'chaos' | 'both';
 
@@ -104,7 +115,17 @@ export type Scenario = {
 };
 
 // Repositório da aplicação no GitHub, lido pela IA.
-export type CodeRepo = { repo: string; branch: string; path?: string };
+// testImage e testCommand dizem como construir e testar o repositório; só as correções automáticas usam.
+// buildWorkflow e image dizem como o CI do repositório constrói a imagem de uma versão; só o re-teste das correções usa.
+export type CodeRepo = {
+  repo: string;
+  branch: string;
+  path?: string;
+  testImage?: string;
+  testCommand?: string;
+  buildWorkflow?: string;
+  image?: string;
+};
 
 export type SLO = { p95Ms: number; errorRatePct: number; availabilityPct: number };
 
@@ -219,13 +240,29 @@ export type Verdict = {
   notes?: string[];
 };
 
+// Correção sugerida. diff é o patch; applies diz se ele se aplica ao commit analisado (ausente = não conferido).
+export type ReportFix = {
+  title: string;
+  detail: string;
+  file?: string;
+  line?: number;
+  code?: string;
+  url?: string;
+  newFile?: boolean;
+  diff?: string;
+  metric?: string;
+  expected?: string;
+  applies?: boolean;
+  applyError?: string;
+};
+
 export type ReportContent = {
   summary: string;
   scoreExplanation: string;
   breakingPoint: { found: boolean; description: string };
   faultFindings: { faultId: string; finding: string }[];
   causes: string[];
-  fixes: { title: string; detail: string; file?: string; line?: number; code?: string; url?: string; newFile?: boolean }[];
+  fixes: ReportFix[];
   regression?: { verdict: 'melhorou' | 'igual' | 'piorou'; summary: string; items: string[] };
 };
 
@@ -234,7 +271,8 @@ export type Report = {
   provider: string;
   usage: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; toolCalls?: number };
   referenceRunId?: string;
-  code?: { repo: string; branch: string; path?: string; commit: string; filesRead: string[] };
+  // pinned: o commit é o que estava implantado no teste (senão, o topo do branch na hora da análise).
+  code?: { repo: string; branch: string; path?: string; commit: string; pinned?: boolean; filesRead: string[] };
   score: number;
   createdAt: string;
 };
@@ -247,7 +285,180 @@ export type AIProvider = { id: string; label: string; keyEnv: string; configured
 
 export type AISettings = { provider: string; model: string; providers?: AIProvider[]; githubTokenConfigured?: boolean };
 
+// Versão de um componente testado (o alvo ou uma dependência) no início da execução.
+export type ImageRef = { container?: string; image: string; id?: string; pods?: number };
+export type Version = { role: 'target' | 'dependency'; name: string; commit?: string; images: ImageRef[]; mixed?: boolean };
+
+// Números de um trecho da execução, calculados pelo k6 sobre todas as requisições do trecho.
+export type Segment = {
+  seconds: number;
+  requests: number;
+  rps: number;
+  errorRatePct: number;
+  avgMs: number;
+  p50Ms: number;
+  p90Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  maxMs: number;
+};
+export type EndpointSummary = Segment & { method: string; path: string };
+
+// Resumo da execução inteira: overall inclui o aquecimento; steady e endpoints, não.
+export type Summary = {
+  openModel: boolean;
+  targetRate?: number;
+  overall: Segment;
+  warmupSeconds: number;
+  steady: Segment;
+  endpoints: EndpointSummary[];
+  unmeasuredEndpoints?: number;
+  droppedIterations?: number;
+  warnings?: string[]; // por que a execução não serve para comparação
+};
+
+// --- correções automáticas ---
+
+export type FixStatus = 'awaiting_approval' | 'queued' | 'running' | 'pr_open' | 'rejected' | 'failed';
+export type PatchFile = { path: string; oldPath?: string; added: number; removed: number; new?: boolean; deleted?: boolean };
+export type PatchReview = { files: PatchFile[]; lines: number; violations: string[]; highlights: string[] };
+export type FixRound = {
+  n: number;
+  startedAt: string;
+  endedAt: string;
+  applied: boolean;
+  agentRan: boolean;
+  agentOutput?: string;
+  agentError?: string;
+  costUsd?: number;
+  diff: string;
+  review?: PatchReview;
+  testExit: number;
+  testLog?: string;
+  error?: string;
+};
+export type BuildRun = { id: number; url: string; status: string; conclusion: string };
+// O que acontece depois do PR: build das versões, experimento A/B e comentário com o resultado.
+export type FixCycle = {
+  stage: 'building' | 'deploying' | 'testing' | 'done' | 'failed' | 'skipped';
+  note?: string;
+  imageA?: string;
+  imageB?: string;
+  buildA?: BuildRun;
+  buildB?: BuildRun;
+  experimentId?: string;
+  outcome?: Outcome;
+  commented: boolean;
+  cleanedUp: boolean;
+};
+// Tentativa de transformar uma correção sugerida num PR em rascunho.
+export type FixAttempt = {
+  id: string;
+  runId: string;
+  scenarioId: string;
+  fixIndex: number;
+  title: string;
+  detail: string;
+  metric?: string;
+  expected?: string;
+  repo: string;
+  baseBranch: string;
+  commit: string;
+  path?: string;
+  testImage: string;
+  testCommand: string;
+  model: string;
+  proposed: string;
+  review: PatchReview;
+  status: FixStatus;
+  error?: string;
+  createdBy?: string;
+  decidedBy?: string;
+  createdAt: string;
+  decidedAt?: string;
+  endedAt?: string;
+  rounds: FixRound[];
+  finalDiff?: string;
+  costUsd: number;
+  pr?: { number: number; url: string; branch: string; commit: string };
+  cycle?: FixCycle;
+  highlights?: string[];
+  // Só no GET de uma tentativa: por que não pode ser aprovada agora e se quem está logado pode decidir.
+  blocked?: string;
+  canDecide?: boolean;
+};
+
+// --- experimentos A/B ---
+
+export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'aborted' | 'failed';
+export type Outcome = 'melhorou' | 'piorou' | 'sem_diferenca' | 'inconclusivo';
+export type MetricName = 'p50' | 'p95' | 'p99' | 'avg' | 'error_rate' | 'score' | 'cpu_per_request';
+export type ExperimentMetric = { name: MetricName; endpoint?: number };
+
+// Comparação de B com A numa métrica: medianas, diferença e intervalo de 95% (bootstrap).
+export type Comparison = {
+  nA: number;
+  nB: number;
+  medianA: number;
+  medianB: number;
+  diff: number;
+  lo: number;
+  hi: number;
+  diffPct: number;
+  loPct: number;
+  hiPct: number;
+  marginAbs: number;
+  outcome: Outcome;
+  why: string;
+};
+
+export type ArmRun = {
+  arm: 'A' | 'B';
+  runId?: string;
+  status: string;
+  valid: boolean;
+  invalid?: string;
+  values?: Partial<Record<MetricName, number>>;
+  version?: string;
+  commit?: string;
+};
+
+export type ExperimentResult = {
+  outcome: Outcome;
+  primary: Comparison;
+  guards: (Comparison & { metric: MetricName })[];
+  noisePct?: number;
+  notes: string[];
+};
+
+// b ausente = teste A/A (a mesma versão dos dois lados, para medir o ruído do ambiente).
+export type ExperimentSpec = {
+  name?: string;
+  scenarioId: string;
+  b?: Target;
+  metric: ExperimentMetric;
+  minRuns?: number;
+  maxRuns?: number;
+  marginPct?: number;
+  cooldownSeconds?: number;
+};
+
+export type Experiment = Required<Omit<ExperimentSpec, 'b'>> & {
+  id: string;
+  b?: Target;
+  scenario: Scenario;
+  status: ExperimentStatus;
+  error?: string;
+  createdAt: string;
+  endedAt?: string;
+  runs: ArmRun[];
+  result?: ExperimentResult;
+};
+
 export type RunDetail = Run & {
+  experiment?: { experimentId: string; arm: 'A' | 'B' };
+  versions?: Version[];
+  summary?: Summary;
   windows: Window[];
   faultEvents: FaultEvent[];
   verdict?: Verdict;
@@ -314,6 +525,15 @@ export const api = {
   chat: (runId: string) => call<ChatMessage[]>('GET', `/api/runs/${runId}/chat`),
   ask: (runId: string, message: string) => call<ChatMessage[]>('POST', `/api/runs/${runId}/chat`, { message }),
   clearChat: (runId: string) => call<void>('DELETE', `/api/runs/${runId}/chat`),
+  fixes: (runId?: string) => call<FixAttempt[]>('GET', `/api/fixes${runId ? `?runId=${runId}` : ''}`),
+  fix: (id: string) => call<FixAttempt>('GET', `/api/fixes/${id}`),
+  createFix: (runId: string, index: number) => call<FixAttempt>('POST', `/api/runs/${runId}/fixes`, { index }),
+  approveFix: (id: string) => call<FixAttempt>('POST', `/api/fixes/${id}/approve`),
+  rejectFix: (id: string) => call<FixAttempt>('POST', `/api/fixes/${id}/reject`),
+  experiments: (scenarioId?: string) => call<Experiment[]>('GET', `/api/experiments${scenarioId ? `?scenarioId=${scenarioId}` : ''}`),
+  experiment: (id: string) => call<Experiment>('GET', `/api/experiments/${id}`),
+  createExperiment: (s: ExperimentSpec) => call<Experiment>('POST', '/api/experiments', s),
+  abortExperiment: (id: string) => call<void>('POST', `/api/experiments/${id}/abort`),
   aiSettings: () => call<AISettings>('GET', '/api/settings/ai'),
   saveAISettings: (s: AISettings) => call<AISettings>('PUT', '/api/settings/ai', { provider: s.provider, model: s.model }),
 };
@@ -321,7 +541,7 @@ export const api = {
 // Mesma conversão de perfil em stages do backend (internal/scenario), para a prévia no editor.
 export function profileStages(p: Profile): { durationSeconds: number; target: number }[] {
   const d = p.durationSeconds;
-  const n = p.vus;
+  const n = openModel(p) ? p.rate! : p.vus;
   const part = (f: number) => Math.max(1, Math.floor(d * f));
   switch (p.type) {
     case 'ramp':

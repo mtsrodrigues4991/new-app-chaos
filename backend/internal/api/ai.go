@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/verdict"
 )
@@ -57,7 +59,16 @@ func (s *Server) runData(ctx context.Context, id string) (analysis.RunData, erro
 	if err != nil {
 		return analysis.RunData{}, err
 	}
-	return analysis.RunData{Run: run, Windows: ws, Events: evs, Verdict: verdict.Evaluate(run.Scenario, ws, evs), Diagnostics: diag}, nil
+	versions, err := s.Store.Versions(ctx, id)
+	if err != nil {
+		return analysis.RunData{}, err
+	}
+	sum, err := s.Store.Summary(ctx, id)
+	if err != nil {
+		return analysis.RunData{}, err
+	}
+	return analysis.RunData{Run: run, Windows: ws, Events: evs, Verdict: verdict.Evaluate(run.Scenario, ws, evs), Diagnostics: diag,
+		Versions: versions, Summary: sum}, nil
 }
 
 // aiConfig devolve o provedor e o modelo escolhidos em Configurações.
@@ -107,6 +118,10 @@ func (s *Server) input(ctx context.Context, cur analysis.RunData, withHistory bo
 		if !finished(r) {
 			continue
 		}
+		// O lado B de um experimento roda outro alvo (a versão candidata): não é histórico deste.
+		if tag, err := s.Store.RunTagOf(ctx, r.ID); err == nil && tag != nil && tag.Arm == experiment.ArmB && r.ID != cur.Run.ID {
+			continue
+		}
 		d, err := s.runData(ctx, r.ID)
 		if err != nil {
 			return in, err
@@ -124,7 +139,11 @@ func (s *Server) input(ctx context.Context, cur analysis.RunData, withHistory bo
 
 // codeBrowser baixa (ou pega do cache) o código configurado no cenário. O cenário atual vale
 // mais que a cópia da execução: o repositório pode ter sido configurado depois de rodar.
-func (s *Server) codeBrowser(ctx context.Context, run store.Run) (*coderepo.Browser, error) {
+//
+// Quando a imagem do alvo declara o commit, a IA lê esse commit: é o código que rodou. Sem
+// isso (ou se o commit não existe no repositório configurado), lê o topo do branch, e o
+// relatório registra que pode não ser o mesmo código.
+func (s *Server) codeBrowser(ctx context.Context, run store.Run, versions []store.Version) (*coderepo.Browser, error) {
 	code := run.Scenario.Code
 	if sc, err := s.Store.GetScenario(ctx, run.ScenarioID); err == nil && sc.Code != nil {
 		code = sc.Code
@@ -132,7 +151,16 @@ func (s *Server) codeBrowser(ctx context.Context, run store.Run) (*coderepo.Brow
 	if code == nil || code.Repo == "" || s.Code == nil {
 		return nil, nil
 	}
-	snap, err := s.Code.Fetch(ctx, code.Repo, code.Branch, code.Path)
+	var snap coderepo.Snapshot
+	var err error
+	if commit := store.TargetCommit(versions); commit != "" {
+		if snap, err = s.Code.FetchAt(ctx, code.Repo, code.Branch, commit, code.Path); err != nil {
+			log.Printf("run %s: commit %s não encontrado em %s (%v); lendo o topo do branch %s", run.ID, commit, code.Repo, err, code.Branch)
+			snap, err = s.Code.Fetch(ctx, code.Repo, code.Branch, code.Path)
+		}
+	} else {
+		snap, err = s.Code.Fetch(ctx, code.Repo, code.Branch, code.Path)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("não consegui baixar o código de %s: %w", code.Repo, err)
 	}
@@ -190,7 +218,7 @@ func (s *Server) analyzeRun(w http.ResponseWriter, r *http.Request) {
 	// Segue mesmo se o navegador fechar: o relatório fica salvo para a próxima visita.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), aiTimeout)
 	defer cancel()
-	if in.Code, err = s.codeBrowser(ctx, cur.Run); err != nil {
+	if in.Code, err = s.codeBrowser(ctx, cur.Run, cur.Versions); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
@@ -302,7 +330,7 @@ func (s *Server) postChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), aiTimeout)
 	defer cancel()
-	if in.Code, err = s.codeBrowser(ctx, cur.Run); err != nil {
+	if in.Code, err = s.codeBrowser(ctx, cur.Run, cur.Versions); err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}

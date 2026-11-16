@@ -18,6 +18,8 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/fix"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -31,8 +33,12 @@ type Server struct {
 	Kube   *kube.Client    // nil fora de um cluster Kubernetes
 	Store  *store.Store
 	Runner *runner.Manager
-	AI     *ai.Registry
-	Code   *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
+	// Experiments roda os experimentos A/B (a fila de execuções intercaladas).
+	Experiments *experiment.Manager
+	// Fixes leva uma correção sugerida até um PR em rascunho (nil = indisponível).
+	Fixes *fix.Manager
+	AI    *ai.Registry
+	Code  *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
 	// Grafana repassa /grafana/ para o Grafana do cluster (nil = sem proxy).
 	Grafana http.Handler
 	// Auth é o login do modo nuvem (nil ou desligado = tudo aberto, como no modo local).
@@ -84,6 +90,17 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/runs/{id}/chat", s.getChat)
 	r.Post("/api/runs/{id}/chat", s.postChat)
 	r.Delete("/api/runs/{id}/chat", s.clearChat)
+
+	r.Post("/api/runs/{id}/fixes", s.createFix)
+	r.Get("/api/fixes", s.listFixes)
+	r.Get("/api/fixes/{id}", s.getFix)
+	r.Post("/api/fixes/{id}/approve", s.decideFix(true))
+	r.Post("/api/fixes/{id}/reject", s.decideFix(false))
+
+	r.Get("/api/experiments", s.listExperiments)
+	r.Post("/api/experiments", s.createExperiment)
+	r.Get("/api/experiments/{id}", s.getExperiment)
+	r.Post("/api/experiments/{id}/abort", s.abortExperiment)
 
 	r.Get("/api/settings/ai", s.getAISettings)
 	r.Put("/api/settings/ai", s.putAISettings)
@@ -145,14 +162,36 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 				sc.Code.Branch = "main"
 			}
 			sc.Code.Path = strings.Trim(strings.TrimSpace(sc.Code.Path), "/")
+			sc.Code.TestImage = strings.TrimSpace(sc.Code.TestImage)
+			sc.Code.TestCommand = strings.TrimSpace(sc.Code.TestCommand)
+			sc.Code.BuildWorkflow = strings.TrimSpace(sc.Code.BuildWorkflow)
+			sc.Code.Image = strings.TrimSuffix(strings.TrimSpace(sc.Code.Image), "/")
+			if (sc.Code.BuildWorkflow == "") != (sc.Code.Image == "") {
+				return sc, errors.New("para re-testar correções, informe o workflow de build e a imagem; ou deixe os dois vazios")
+			}
+			if sc.Code.Image != "" && (strings.ContainsAny(sc.Code.Image, " \t\n@") || strings.Contains(sc.Code.Image[strings.LastIndex(sc.Code.Image, "/")+1:], ":") || strings.ContainsAny(sc.Code.BuildWorkflow, " \t\n/")) {
+				return sc, errors.New("a imagem vai sem tag nem digest (ex.: ghcr.io/dono/repo) e o workflow é só o nome do arquivo (ex.: nac-build.yml)")
+			}
+			if (sc.Code.TestImage == "") != (sc.Code.TestCommand == "") || strings.ContainsAny(sc.Code.TestImage, " \t\n") {
+				return sc, errors.New("para conferir correções, informe a imagem de build (sem espaços) e o comando de teste; ou deixe os dois vazios")
+			}
 		}
 	}
 	return sc, sc.Validate()
 }
 
-// checkScenario junta a validação do cenário com as regras do modo nuvem.
+// checkScenario confere para onde o cenário manda carga (URL base) e onde injeta falhas
+// (namespace do alvo e das dependências). Roda ao salvar e de novo ao disparar: um cenário
+// salvo antes de uma trava existir não passa por ela.
 func (s *Server) checkScenario(sc scenario.Scenario) error {
-	return s.Guard.CheckTarget(sc.Target.BaseURL)
+	if err := s.Guard.CheckTarget(sc.Target.BaseURL); err != nil {
+		return err
+	}
+	ownNS := ""
+	if s.Kube != nil {
+		ownNS = s.Kube.Namespace()
+	}
+	return s.Guard.CheckNamespaces(sc, ownNS)
 }
 
 func (s *Server) createScenario(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +309,17 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		Verdict        *verdict.Verdict   `json:"verdict,omitempty"` // só depois que a execução termina
 		ReferenceRunID string             `json:"referenceRunId,omitempty"`
 		Analysis       *analysis.Report   `json:"analysis,omitempty"`
-	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID}
+		// Versions: imagens e commits testados (ausente em execuções antigas).
+		Versions []store.Version `json:"versions,omitempty"`
+		// Summary: números da execução inteira e por endpoint (ausente sem carga ou em execuções antigas).
+		Summary *load.Summary `json:"summary,omitempty"`
+		// Experiment: o experimento que disparou esta execução e de que lado ela é (ausente nas avulsas).
+		Experiment *store.RunTag `json:"experiment,omitempty"`
+	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID, Versions: d.Versions, Summary: d.Summary}
+	if out.Experiment, err = s.Store.RunTagOf(r.Context(), d.Run.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	if finished(d.Run) {
 		out.Verdict = &d.Verdict
 		var rep analysis.Report

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, ChatMessage, Report, RunDetail } from '../api';
+import { api, ChatMessage, Report, ReportFix, RunDetail } from '../api';
+import { go } from '../router';
 import { faultMeta, faultSummary } from '../faults';
 import RichText from './RichText';
 import Icon from './Icon';
@@ -88,7 +89,8 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
                 <a href={`https://github.com/${rep.code.repo}/tree/${rep.code.commit}${rep.code.path ? `/${rep.code.path}` : ''}`} target="_blank" rel="noreferrer">
                   {rep.code.repo}
                 </a>{' '}
-                ({rep.code.branch} @ <code>{rep.code.commit.slice(0, 7)}</code>)
+                ({rep.code.branch} @ <code>{rep.code.commit.slice(0, 7)}</code>,{' '}
+                {rep.code.pinned ? 'o commit que rodou no teste' : 'topo do branch na hora da análise; pode não ser o código que rodou'})
               </summary>
               <ul>
                 {rep.code.filesRead.map((f, i) => (
@@ -186,6 +188,7 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
                       </div>
                     )}
                     {f.code && <pre className="code">{f.code}</pre>}
+                    <FixPatch runId={run.id} index={i} fix={f} />
                   </div>
                 </div>
               ))}
@@ -300,6 +303,51 @@ function Chat({ runId, hasCode }: { runId: string; hasCode: boolean }) {
           Enviar
         </button>
       </form>
+    </div>
+  );
+}
+
+// O patch de uma correção: se ele se aplica ao código analisado, o que deve melhorar e o botão
+// que registra a tentativa de virar PR (que ainda espera a aprovação de uma pessoa).
+function FixPatch({ runId, index, fix }: { runId: string; index: number; fix: ReportFix }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!fix.diff) return null;
+  const tryIt = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const a = await api.createFix(runId, index);
+      go(`/correcoes/${a.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="small no-print" style={{ marginTop: 8 }}>
+      {(fix.metric || fix.expected) && (
+        <div className="muted">
+          Deve melhorar: {fix.metric || 'não informado'}
+          {fix.expected ? ` (${fix.expected})` : ''}
+        </div>
+      )}
+      <details>
+        <summary>
+          Patch{' '}
+          {fix.applies === true && <span className="grade-chip resiliente">aplica no commit analisado</span>}
+          {fix.applies === false && <span className="grade-chip fragil">não aplica</span>}
+          {fix.applies === undefined && <span className="grade-chip">não conferido</span>}
+        </summary>
+        {fix.applyError && <p className="error">{fix.applyError}</p>}
+        <pre className="code">{fix.diff}</pre>
+      </details>
+      {fix.applies !== false && (
+        <button onClick={tryIt} disabled={busy} title="Registra a tentativa. Nada roda antes de uma pessoa aprovar.">
+          {busy ? 'Registrando…' : 'Tentar esta correção'}
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
     </div>
   );
 }

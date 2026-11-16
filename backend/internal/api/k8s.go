@@ -9,12 +9,6 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 )
 
-// systemNamespaces não aparecem como alvos.
-var systemNamespaces = map[string]bool{
-	"kube-system": true, "kube-public": true, "kube-node-lease": true,
-	"local-path-storage": true, "chaos-mesh": true, "observability": true,
-}
-
 // DeploymentInfo é um Deployment candidato a alvo.
 type DeploymentInfo struct {
 	Namespace string   `json:"namespace"`
@@ -48,7 +42,7 @@ func deploymentInfos(deps []kube.Deployment, svcs []kube.Service, ownNS string) 
 	out := []DeploymentInfo{}
 	for _, d := range deps {
 		ns := d.Metadata.Namespace
-		if systemNamespaces[ns] || ns == ownNS {
+		if protectedNamespace(ns, ownNS) {
 			continue
 		}
 		info := DeploymentInfo{Namespace: ns, Name: d.Metadata.Name, Ready: d.Status.ReadyReplicas, Images: []string{}, URLs: []string{}}

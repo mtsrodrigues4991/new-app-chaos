@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
@@ -40,6 +41,8 @@ func server(t *testing.T, files map[string]string, wantToken string) (*httptest.
 		}
 		switch {
 		case r.URL.Path == "/repos/dono/repo/commits/main":
+			w.Write([]byte(sha))
+		case r.URL.Path == "/repos/dono/repo/commits/"+sha[:12]: // commit abreviado, como numa tag de imagem
 			w.Write([]byte(sha))
 		case r.URL.Path == "/repos/dono/repo/tarball/"+sha:
 			downloads++
@@ -156,5 +159,49 @@ func TestTreeAndLocate(t *testing.T) {
 		if got != want || ok != (want != "") {
 			t.Errorf("Locate(%q) = %q %v, queria %q", in, got, ok, want)
 		}
+	}
+}
+
+// A análise lê o commit que estava implantado, e não o topo do branch.
+func TestFetchAtPinsCommit(t *testing.T) {
+	s, downloads := server(t, map[string]string{"App.java": "class App {}\n"}, "")
+	defer s.Close()
+	f := &Fetcher{APIBase: s.URL, CacheDir: t.TempDir()}
+	snap, err := f.FetchAt(context.Background(), "dono/repo", "main", sha[:12], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Commit != sha || !snap.Pinned || snap.Branch != "main" {
+		t.Fatalf("esperava o commit inteiro, fixado: %+v", snap)
+	}
+	head, err := f.Fetch(context.Background(), "dono/repo", "main", "")
+	if err != nil || head.Pinned || *downloads != 1 {
+		t.Fatalf("o topo do branch não é fixado e reusa o cache: %+v downloads=%d err=%v", head, *downloads, err)
+	}
+	if _, err := f.FetchAt(context.Background(), "dono/repo", "main", "fffffff", ""); err == nil {
+		t.Fatal("commit que não existe no repositório tem que dar erro (quem chama decide o que fazer)")
+	}
+}
+
+// O cache guarda os commits usados por último, para alternar entre versões sem baixar de novo.
+func TestPruneKeepsRecentCommits(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Now().Add(-time.Hour)
+	for i, name := range []string{"a", "b", "c", "d", "e"} {
+		os.MkdirAll(filepath.Join(dir, name), 0o755)
+		p := filepath.Join(dir, name, ".complete")
+		os.WriteFile(p, nil, 0o644)
+		at := base.Add(time.Duration(i) * time.Minute) // "a" é o mais antigo
+		os.Chtimes(p, at, at)
+	}
+	os.MkdirAll(filepath.Join(dir, "interrompido"), 0o755) // download que não terminou
+	prune(dir, "a")                                        // usar "a" o torna o mais recente
+	entries, _ := os.ReadDir(dir)
+	var left []string
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	if strings.Join(left, ",") != "a,d,e" {
+		t.Fatalf("esperava ficar com a (recém-usado), d, e; ficou %v", left)
 	}
 }

@@ -9,8 +9,11 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/stressor ./cmd/stressor
 
 FROM alpine:3.20
 # iproute2 (tc): esta mesma imagem é usada como auxiliar nas falhas de rede.
-RUN apk add --no-cache iproute2
+# git: confere se o patch de uma correção sugerida se aplica (git apply --check).
+RUN apk add --no-cache iproute2 git
 COPY --from=build /out/server /usr/local/bin/server
 COPY --from=build /out/stressor /usr/local/lib/new-app-chaos/stressor
+# Marca que este backend entende "server backup" (o scripts/azure-db-backup.sh confere antes de chamar).
+RUN touch /usr/local/lib/new-app-chaos/can-backup
 EXPOSE 8080
 ENTRYPOINT ["server"]

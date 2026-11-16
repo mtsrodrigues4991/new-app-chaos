@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +67,9 @@ type Snapshot struct {
 	Branch string `json:"branch"`
 	Path   string `json:"path,omitempty"` // subpasta usada como raiz
 	Commit string `json:"commit"`
+	// Pinned indica que Commit é o commit que estava implantado durante o teste (declarado pela
+	// imagem do alvo). Sem isso, é o topo do branch na hora da análise, que pode ser outro código.
+	Pinned bool   `json:"pinned,omitempty"`
 	Root   string `json:"-"`
 }
 
@@ -127,8 +131,18 @@ func (f *Fetcher) get(ctx context.Context, u, accept string) (*http.Response, er
 	return nil, fmt.Errorf("GitHub respondeu %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
+// keepCommits é quantos commits de cada repositório ficam em cache: o bastante para alternar
+// entre as versões de um antes e depois sem baixar de novo a cada análise.
+const keepCommits = 3
+
 // Fetch resolve o commit atual do branch e garante a cópia local dele.
 func (f *Fetcher) Fetch(ctx context.Context, repo, branch, sub string) (Snapshot, error) {
+	return f.FetchAt(ctx, repo, branch, "", sub)
+}
+
+// FetchAt garante a cópia local de um commit específico (inteiro ou abreviado): o que estava
+// implantado durante o teste. Com commit vazio, usa o topo do branch.
+func (f *Fetcher) FetchAt(ctx context.Context, repo, branch, commit, sub string) (Snapshot, error) {
 	repo, err := NormalizeRepo(repo)
 	if err != nil {
 		return Snapshot{}, err
@@ -137,9 +151,13 @@ func (f *Fetcher) Fetch(ctx context.Context, repo, branch, sub string) (Snapshot
 		branch = "main"
 	}
 	sub = strings.Trim(path.Clean("/"+sub), "/")
-	snap := Snapshot{Repo: repo, Branch: branch, Path: sub}
+	snap := Snapshot{Repo: repo, Branch: branch, Path: sub, Pinned: commit != ""}
+	ref := branch
+	if commit != "" {
+		ref = commit
+	}
 
-	resp, err := f.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", f.api(), repo, url.PathEscape(branch)), "application/vnd.github.sha")
+	resp, err := f.get(ctx, fmt.Sprintf("%s/repos/%s/commits/%s", f.api(), repo, url.PathEscape(ref)), "application/vnd.github.sha")
 	if err != nil {
 		return snap, err
 	}
@@ -162,15 +180,8 @@ func (f *Fetcher) Fetch(ctx context.Context, repo, branch, sub string) (Snapshot
 			os.RemoveAll(dir)
 			return snap, err
 		}
-		// Guarda só o commit mais recente de cada repositório.
-		if entries, err := os.ReadDir(repoDir); err == nil {
-			for _, e := range entries {
-				if e.Name() != snap.Commit {
-					os.RemoveAll(filepath.Join(repoDir, e.Name()))
-				}
-			}
-		}
 	}
+	prune(repoDir, snap.Commit)
 	snap.Root = filepath.Join(dir, "src", filepath.FromSlash(sub))
 	st, err := os.Stat(snap.Root)
 	if err != nil || !st.IsDir() {
@@ -259,4 +270,32 @@ func skipped(name string) bool {
 		}
 	}
 	return false
+}
+
+// prune marca o commit como recém-usado e apaga os mais antigos além de keepCommits.
+func prune(repoDir, used string) {
+	now := time.Now()
+	_ = os.Chtimes(filepath.Join(repoDir, used, ".complete"), now, now)
+	entries, err := os.ReadDir(repoDir)
+	if err != nil {
+		return
+	}
+	type item struct {
+		name string
+		at   time.Time
+	}
+	var items []item
+	for _, e := range entries {
+		it := item{name: e.Name()}
+		if st, err := os.Stat(filepath.Join(repoDir, e.Name(), ".complete")); err == nil {
+			it.at = st.ModTime()
+		} // sem .complete (download interrompido): o mais antigo de todos
+		items = append(items, it)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].at.After(items[j].at) })
+	for i, it := range items {
+		if i >= keepCommits && it.name != used {
+			os.RemoveAll(filepath.Join(repoDir, it.name))
+		}
+	}
 }

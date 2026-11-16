@@ -1,0 +1,89 @@
+{{- if .Values.sandbox.enabled }}
+{{- $ns := .Values.sandbox.namespace | default (printf "%s-sandbox" .Release.Namespace) }}
+# Sandbox das correções automáticas: um namespace só para os pods que aplicam um patch e rodam o
+# build e os testes do repositório alvo. Nada do app nem dos alvos mora aqui.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels: {{- include "nac.labels" . | nindent 4 }}
+    # O próprio Kubernetes recusa pod com root, privilégios ou hostPath neste namespace.
+    pod-security.kubernetes.io/enforce: restricted
+---
+# O backend só cria e apaga, neste namespace, o Job e o Secret de cada rodada, e lê o resultado
+# pelo log do pod. Não lê Secrets (nem os que ele mesmo criou).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Namespace }}-new-app-chaos-sandbox
+  namespace: {{ $ns }}
+  labels: {{- include "nac.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-new-app-chaos-sandbox
+  namespace: {{ $ns }}
+  labels: {{- include "nac.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Namespace }}-new-app-chaos-sandbox
+subjects:
+  - kind: ServiceAccount
+    name: new-app-chaos
+    namespace: {{ .Release.Namespace }}
+---
+# Rede: ninguém entra nos pods do sandbox, e eles só saem para o DNS do cluster e para a
+# internet (GitHub, API da Anthropic, registries de pacotes). As faixas privadas ficam de fora:
+# é o que impede o código em teste de alcançar os alvos, o banco do app, a observabilidade e os
+# metadados da nuvem. Só vale em cluster com um motor de NetworkPolicy; sem ele (a AKS deste
+# projeto, hoje) a regra é aceita e ignorada, e por isso o sandbox fica desligado lá.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: new-app-chaos-sandbox
+  namespace: {{ $ns }}
+  labels: {{- include "nac.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"]
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 80 }
+---
+# Teto de consumo do namespace inteiro: uma rodada por vez cabe com folga.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: new-app-chaos-sandbox
+  namespace: {{ $ns }}
+  labels: {{- include "nac.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: "4"
+    limits.cpu: "8"
+    limits.memory: 12Gi
+{{- end }}

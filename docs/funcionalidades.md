@@ -8,7 +8,14 @@ Lista os containers Docker rodando (nome, imagem, portas, rede) e cria um cenár
 
 ## Cenários
 
-Editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia dos VUs. Salvos em SQLite.
+Editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia. Salvos em SQLite.
+
+O perfil tem dois modelos de carga:
+
+- **Usuários virtuais** (padrão): cada VU espera a resposta antes do próximo pedido. Se a API fica lenta, a carga cai junto. Bom para achar o ponto de quebra; ruim para comparar duas versões, porque a mais rápida recebe mais carga.
+- **Taxa de chegada:** requisições por segundo fixas (executor `ramping-arrival-rate` do k6), responda a API rápido ou devagar. É o modelo para comparar antes e depois. Pede também os **VUs pré-alocados**, o teto de requisições simultâneas: taxa × tempo de resposta esperado em segundos, com folga. Se faltar VU, o k6 descarta requisições e a execução avisa que não serve para comparação.
+
+O **aquecimento** (segundos, opcional) tira das medições da janela estável as requisições iniciadas no começo do teste, quando JIT, pools e caches ainda estão enchendo.
 
 ## Execução
 
@@ -17,6 +24,64 @@ O backend sobe um container `grafana/k6` na mesma rede do alvo, lê as métricas
 ## Gráficos ao vivo e histórico
 
 Latência p50/p95/p99, RPS, VUs ativos, respostas por código HTTP, taxa de erro, CPU e memória do container alvo. Tudo agregado por segundo e salvo, então execuções antigas podem ser reabertas.
+
+## Medição da execução
+
+Quando a execução termina, o cartão **Medição** (aba Resumo) mostra o que serve para comparar duas execuções:
+
+- **Versão testada:** a imagem e o identificador do conteúdo (digest do registry ou id da imagem local) do alvo e das dependências usadas nas falhas, lidos no início da execução. O commit aparece quando é declarado: pelo rótulo OCI `org.opencontainers.image.revision` da imagem (Docker) ou pela anotação de mesmo nome no pod (Kubernetes; o `kind-up.sh` preenche os dois quando a pasta do alvo não tem mudança local). Sem declaração, a tela diz "não declarado" em vez de supor. Pods com versões diferentes durante o teste ficam marcados.
+- **Números da execução inteira, da janela estável e por endpoint:** requisições, vazão, erro, p50, p95, p99 e máximo, calculados pelo k6 sobre todas as requisições do trecho (e não sobre os percentis de cada segundo). A janela estável e os endpoints contam só as requisições iniciadas depois do aquecimento. Até 20 endpoints têm números próprios; os demais entram só nos totais.
+- **Avisos:** a execução diz quando não serve para comparação (carga em VUs, requisições descartadas por falta de VU, nenhuma requisição na janela estável).
+
+A IA recebe a versão e esses números junto das outras evidências.
+
+## Experimentos A/B (antes e depois, com estatística)
+
+Um experimento roda o mesmo cenário contra duas versões e decide, sem IA, se a versão B **melhorou**, **piorou**, **não difere** ou se o resultado é **inconclusivo**.
+
+- **Quem implanta é você.** A é o alvo do cenário; B é outro container ou Deployment com a versão candidata. Sem B, é um **teste A/A** (a mesma versão dos dois lados), que mede o ruído do cenário naquele ambiente. Faça um antes do primeiro A/B.
+- **Execuções repetidas e intercaladas:** A B, B A, A B... O experimento decide a partir de 5 execuções válidas por versão e para assim que a decisão deixa de ser "inconclusivo", ou no teto (10 por versão, ajustável). Enquanto ele roda, nenhuma outra execução entra; se já houver uma rodando, ele espera a vez.
+- **Métrica principal escolhida antes:** p50, p95, p99 ou média de latência, taxa de erro (da janela estável, de todos os endpoints ou de um só) ou a nota de resiliência (cenários com falhas).
+- **Regra de decisão** (pacote `internal/stats`): intervalo de 95% da diferença das medianas, por bootstrap com semente fixa, contra um limite prático (padrão: 5% da mediana de A).
+  - *Sem diferença:* o intervalo inteiro cabe dentro do limite prático.
+  - *Melhorou:* o intervalo exclui zero para o lado bom e o ganho passa do limite prático.
+  - *Piorou:* o intervalo exclui zero para o lado ruim, ou uma métrica de guarda piorou.
+  - *Inconclusivo:* todo o resto. É um resultado legítimo: os dados não bastam.
+- **Guardas:** taxa de erro, nota de resiliência e CPU do alvo por requisição. Baixar o p95 dobrando os erros não é ganho.
+- **Piso de ruído:** o teste A/A registra o quanto a métrica varia sem nenhuma mudança. Num A/B, um ganho menor que duas vezes esse piso vira "inconclusivo", e a tela avisa quando o cenário nunca teve um A/A.
+- **O que invalida uma execução:** não concluir, falha que não foi aplicada e revertida, requisições descartadas pelo gerador, nenhuma requisição na janela estável ou pods com versões diferentes. Ela é registrada com o motivo e não entra na conta. Se a imagem de um lado mudar no meio do experimento, o resultado é "inconclusivo".
+- **Exige carga por taxa de chegada** nas métricas de latência e erro: com carga em VUs a versão mais rápida receberia mais carga.
+- A execução de um experimento mostra de qual experimento e de que lado ela é. As do lado B não entram no histórico que o chat da IA usa (são de outro alvo).
+
+## Correções automáticas: da sugestão ao PR em rascunho
+
+Com o código da aplicação configurado no cenário, cada correção do relatório da IA vem também como **patch** (diff unificado), com a métrica que deve melhorar e o quanto.
+
+- **Patch conferido:** o backend roda `git apply --check` contra o commit analisado e mostra "aplica" ou "não aplica" ao lado da sugestão.
+- **Tentar esta correção:** registra uma tentativa de transformar a sugestão num pull request. **Nada roda antes de uma pessoa aprovar** (com o login ligado, só o administrador aprova ou recusa; fica registrado quem pediu e quem decidiu).
+- **Limites de escopo, conferidos sobre o diff e não sobre o prompt:** até 5 arquivos e 200 linhas; nada em pipelines de CI, arquivos de segredo, código de autenticação ou migrações de banco; em arquivo de teste só se acrescenta (apagar ou alterar um teste existente barra a tentativa); mudança em arquivo de dependências não barra, mas é destacada para quem aprova e no PR. Valem para o patch sugerido e para tudo que o agente escrever.
+- **Sandbox** (só no Kubernetes, namespace próprio): cada rodada é um pod sem conta de serviço, sem root e com Pod Security "restricted", em quatro passos:
+  1. *checkout:* baixa o commit testado e tenta aplicar o patch como veio;
+  2. *agente:* só roda se o patch não aplicou ou se o build da rodada anterior falhou. É o Claude Code em modo restrito, só com ferramentas de arquivo (não executa comandos nem acessa a rede), ignorando o `CLAUDE.md` e os hooks do repositório, com teto de custo. É o único passo que vê a chave da Anthropic;
+  3. *build e testes:* a imagem e o comando configurados no cenário (ex.: `maven:3.9-eclipse-temurin-17` e `mvn -B -q verify`). Não vê credencial nenhuma;
+  4. *relatório:* escreve o diff e o resultado no log, que é por onde o backend lê.
+  A rede do namespace só sai para o DNS e para a internet (as faixas privadas ficam bloqueadas, o que isola os alvos, o banco do app e a observabilidade). Isso depende de o cluster aplicar NetworkPolicy.
+- **Até 3 rodadas e US$ 3 por tentativa.** Se o build ou os testes falham, o agente recebe o fim do log e tenta de novo. Sem build verde, nenhum PR é aberto.
+- **Publicação sem modelo:** com o build verde, um passo determinístico do backend cria o branch `nac/fix-<id>` com um commit sobre o commit testado e abre o PR **em rascunho**, com a evidência (execução, commit, comando de teste, hipótese de ganho, quem aprovou). Usa o `PR_GITHUB_TOKEN`, um token de escrita separado do de leitura, que o agente nunca vê. O app não faz merge, não aprova PR e não reescreve branch.
+- **Auditoria:** cada tentativa guarda o patch sugerido, as instruções dadas ao agente, o diff e o log de cada rodada, o custo e o resultado. Tentativas interrompidas por reinício do backend não são retomadas.
+- **Configuração:** no cenário, em "Código da aplicação", a imagem de build e o comando de teste. No ambiente, `PR_GITHUB_TOKEN` no `.env` (token fine-grained com Contents e Pull requests em leitura e escrita, só nos repositórios alvo). O `make kind-up` já liga o sandbox; na Azure ele fica desligado (o cluster de hoje não aplica NetworkPolicy).
+
+### Depois do PR: re-testar e comentar o resultado
+
+Se o cenário também disser como o CI do repositório constrói a imagem (o workflow e onde ela é publicada), o ciclo continua sozinho depois do PR:
+
+1. **Build no CI do repositório alvo.** O app dispara o workflow `nac-build.yml` do repositório (modelo em `deploy/target-ci/`) duas vezes: para o commit que rodou no teste (versão A) e para o branch do PR (versão B). As duas imagens saem do mesmo pipeline, e as credenciais de build e de registry ficam no repositório, fora do alcance do app e do agente.
+2. **Cópias A e B.** As duas versões sobem num namespace separado, como cópias do Deployment do alvo em que só a imagem muda. O Deployment de referência nunca é tocado. As dependências não são copiadas: as cópias falam com as mesmas, por apelidos com os nomes que o alvo já usa (ex.: `pix-postgres`).
+3. **Experimento A/B** contra as cópias, com a métrica que a correção disse que melhoraria (na dúvida, p95) e a mesma regra estatística dos outros experimentos.
+4. **Comentário no PR** com a decisão, as medianas, o intervalo de 95%, as guardas e o piso de ruído. Se o re-teste não chegar a um resultado, o PR recebe um comentário dizendo que o ganho não foi medido.
+5. **Limpeza.** As cópias são apagadas em qualquer desfecho, e de novo na subida do backend se ele caiu no meio.
+
+Limites: só alvos no Kubernetes; o alvo precisa ser autocontido (um Deployment que usa Secret, ConfigMap ou volume do namespace dele é recusado, em vez de copiado pela metade); o cenário precisa de carga por taxa de chegada. No cenário: "Workflow de build" e "Imagem publicada". No ambiente: o `PR_GITHUB_TOKEN` precisa também da permissão Actions (leitura e escrita), e o cluster precisa conseguir baixar a imagem (pacote público, ou um Secret de pull no namespace efêmero, informado em `EPHEMERAL_PULL_SECRET`).
 
 ## Caos
 
@@ -44,7 +109,7 @@ O botão "Analisar com IA" manda as evidências da execução (cenário, veredit
 
 - **Regressão:** marque uma execução como referência do cenário (☆ no veredito). As próximas análises do mesmo cenário trazem a comparação com ela. Nunca compara com outro cenário ou alvo.
 - **Chat** em cada execução: a IA vê a execução, o relatório, a referência e o histórico do mesmo cenário. A conversa fica salva.
-- **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa essa branch (fica em cache por commit), navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
+- **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa o commit que estava implantado durante o teste, quando a imagem do alvo o declara (ver "Medição da execução"); sem isso, baixa o topo da branch e o relatório avisa que pode não ser o código que rodou. A cópia fica em cache (os três commits usados por último de cada repositório). A IA, navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
 - **Relatório imprimível:** o botão "Imprimir / salvar PDF" na execução gera um relatório em A4, sempre em tema claro, com números, veredito, falhas, gráficos e a análise da IA (sem o chat).
 - **Configurações:** escolhe provedor e modelo (padrão Claude Opus 5.5; Sonnet 5.5 e Haiku 5.5 são mais baratos). A camada de provedor (`backend/internal/ai`) é trocável.
 
@@ -64,6 +129,7 @@ O app também roda dentro de um cluster KIND local (`make kind-up`). Lá o alvo 
   - As cores seguem o efeito: atrasos usam a cor da latência e erros a da perda; o rótulo do bloco diz qual é a falha e, se for numa dependência, onde (`@ pix-postgres`, ou `→ pix-postgres` só no caminho).
 - **Falha que não confirma:** se o Chaos Mesh não confirma a injeção em 45 s (ou até o fim do bloco, se ele for mais curto), a falha fica marcada como "falhou" (com o erro do Chaos Mesh) e a execução segue com as próximas. O recurso é apagado em segundo plano, sem atrasar as próximas falhas, e, se o Chaos Mesh não o liberar, o app tira o finalizer dele para não deixar nada preso no cluster.
 - **Logs e eventos na análise (fase C):** durante a execução o app coleta o log dos containers do alvo e das dependências usadas nas falhas (um stream do log de cada container, aberto assim que o pod aparece e mantido até ele terminar, então um pod apagado pelo kill fica com as linhas até o fim; a instância anterior de um container que reiniciou também entra) e, no fim, os eventos do Kubernetes desses namespaces (Killing, Unhealthy, BackOff...; do Chaos Mesh só Applied, Recovered e erros). Os eventos têm precisão de 1 s, então podem aparecer até ~1 s antes. No Docker entra o log do container alvo. Tudo fica salvo com a execução, aparece em "Logs e eventos" na tela dela (com a falha ativa em cada linha) e vai para a IA resumido: linhas iguais a menos de números juntadas, prioridade para erros, conexões, partidas e paradas, até ~40 mil caracteres.
+- **Onde as falhas podem entrar:** o alvo e as dependências nunca podem estar num namespace de sistema (`kube-system` e outros `kube-*`, `chaos-mesh`, `observability`, `cert-manager`, `traefik`, `ingress-nginx`, `gatekeeper-system`, `openshift-*`, `local-path-storage`) nem no do próprio app: a API recusa o cenário ao salvar e ao disparar. Com `ALLOWED_TARGET_NAMESPACES` (valor `guard.allowedTargetNamespaces` do chart), só os namespaces listados são aceitos. O valor `rbac.targetNamespaces` do chart vai além: o backend só recebe permissão de criar falhas nesses namespaces (Role por namespace no lugar do ClusterRole), e o próprio Kubernetes recusa o resto.
 - O modo Docker não mudou: `docker compose up` continua igual.
 
 ## Observabilidade opcional (Grafana)

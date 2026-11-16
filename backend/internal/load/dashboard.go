@@ -30,10 +30,13 @@ type Snapshot struct {
 // "snapshot" trazem um array de valores por métrica, na ordem alfabética dos nomes
 // já anunciados. Cada tipo tem seus agregados (anunciados no evento "param"):
 // counter [count, rate], gauge [value], rate [rate], trend [avg, max, med, min, p90, p95, p99].
+// Antes de cada "snapshot" vem um evento "cumulative", no mesmo formato, com os agregados
+// desde o início do teste; o último chega antes do "stop".
 type DashboardReader struct {
 	names   map[string]bool
 	startMs float64
 	trend   []string
+	totals  *Totals
 	// Origin, quando definido, é o início da execução: os segundos passam a contar dele, e não
 	// do início do k6 (que sobe uns segundos depois). Assim carga, falhas e CPU ficam alinhadas.
 	Origin time.Time
@@ -74,26 +77,48 @@ func (d *DashboardReader) Event(name string, data []byte) (snap *Snapshot, stop 
 		}
 	case "stop":
 		return nil, true, nil
-	case "snapshot":
-		var vals [][]float64
-		if err := json.Unmarshal(data, &vals); err != nil {
+	case "cumulative":
+		by, err := d.values(name, data)
+		if err != nil {
 			return nil, false, err
 		}
-		names := make([]string, 0, len(d.names))
-		for k := range d.names {
-			names = append(names, k)
+		t := &Totals{by: by, trend: d.trend}
+		if v := by["time"]; len(v) > 0 && d.startMs > 0 && v[0] > d.startMs {
+			t.ElapsedSeconds = (v[0] - d.startMs) / 1000
 		}
-		sort.Strings(names)
-		if len(names) != len(vals) {
-			return nil, false, fmt.Errorf("snapshot com %d métricas, esperado %d", len(vals), len(names))
-		}
-		by := make(map[string][]float64, len(names))
-		for i, n := range names {
-			by[n] = vals[i]
+		d.totals = t
+	case "snapshot":
+		by, err := d.values(name, data)
+		if err != nil {
+			return nil, false, err
 		}
 		return d.build(by), false, nil
 	}
 	return nil, false, nil
+}
+
+// Totals devolve o último acumulado recebido (nil se nenhum chegou).
+func (d *DashboardReader) Totals() *Totals { return d.totals }
+
+// values casa os valores de um snapshot ou acumulado com os nomes das métricas já anunciadas.
+func (d *DashboardReader) values(event string, data []byte) (map[string][]float64, error) {
+	var vals [][]float64
+	if err := json.Unmarshal(data, &vals); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(d.names))
+	for k := range d.names {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	if len(names) != len(vals) {
+		return nil, fmt.Errorf("%s com %d métricas, esperado %d", event, len(vals), len(names))
+	}
+	by := make(map[string][]float64, len(names))
+	for i, n := range names {
+		by[n] = vals[i]
+	}
+	return by, nil
 }
 
 func (d *DashboardReader) build(by map[string][]float64) *Snapshot {
@@ -177,7 +202,14 @@ func ReadSSE(r io.Reader, onEvent func(name string, data []byte) bool) error {
 
 // StreamDashboard conecta no /events do dashboard do k6 e entrega os resumos até o fim do teste.
 // origin é o início da execução (ver DashboardReader.Origin); zero = início do k6.
-func StreamDashboard(ctx context.Context, url string, origin time.Time, onSnapshot func(*Snapshot)) error {
+// Devolve também o último acumulado recebido (nil se nenhum chegou), mesmo quando há erro.
+func StreamDashboard(ctx context.Context, url string, origin time.Time, onSnapshot func(*Snapshot)) (*Totals, error) {
+	d := NewDashboardReader()
+	err := streamDashboard(ctx, url, origin, d, onSnapshot)
+	return d.Totals(), err
+}
+
+func streamDashboard(ctx context.Context, url string, origin time.Time, d *DashboardReader, onSnapshot func(*Snapshot)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -190,7 +222,6 @@ func StreamDashboard(ctx context.Context, url string, origin time.Time, onSnapsh
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dashboard do k6 respondeu %d", resp.StatusCode)
 	}
-	d := NewDashboardReader()
 	d.Origin = origin
 	var procErr error
 	err = ReadSSE(resp.Body, func(name string, data []byte) bool {

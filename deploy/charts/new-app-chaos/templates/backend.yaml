@@ -75,6 +75,9 @@ spec:
             {{- with .Values.guard.allowedTargetHosts }}
             - { name: ALLOWED_TARGET_HOSTS, value: {{ . | quote }} }
             {{- end }}
+            {{- with .Values.guard.allowedTargetNamespaces }}
+            - { name: ALLOWED_TARGET_NAMESPACES, value: {{ . | quote }} }
+            {{- end }}
             {{- if .Values.guard.aiDailyLimit }}
             - { name: AI_DAILY_LIMIT, value: {{ .Values.guard.aiDailyLimit | quote }} }
             {{- end }}
@@ -84,6 +87,26 @@ spec:
             - { name: OBS_PYROSCOPE_URL, value: {{ .Values.observability.pyroscopeUrl | quote }} }
             - { name: OBS_GRAFANA_URL, value: {{ .Values.observability.grafanaUrl | quote }} }
             - { name: OBS_GRAFANA_PROXY, value: {{ .Values.observability.grafanaProxyUrl | quote }} }
+            {{- end }}
+            {{- if .Values.sandbox.enabled }}
+            - { name: SANDBOX_NAMESPACE, value: {{ .Values.sandbox.namespace | default (printf "%s-sandbox" .Release.Namespace) | quote }} }
+            - { name: SANDBOX_IMAGE, value: {{ .Values.sandbox.image | quote }} }
+            # Token de escrita, só para abrir o PR em rascunho; separado do GITHUB_TOKEN de leitura.
+            - name: PR_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: PR_GITHUB_TOKEN
+                  optional: true
+            {{- end }}
+            {{- if .Values.ephemeral.enabled }}
+            - { name: EPHEMERAL_NAMESPACE, value: {{ .Values.ephemeral.namespace | default (printf "%s-ephemeral" .Release.Namespace) | quote }} }
+            {{- with .Values.ephemeral.pullSecret }}
+            - { name: EPHEMERAL_PULL_SECRET, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+            {{- with .Values.appUrl }}
+            - { name: APP_URL, value: {{ . | quote }} }
             {{- end }}
             - name: ANTHROPIC_API_KEY
               valueFrom:

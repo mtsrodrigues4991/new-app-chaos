@@ -1,0 +1,514 @@
+{
+ "aa": {
+  "id": "a11a5f0c0fbc5b63",
+  "name": "fase1-demo",
+  "scenarioId": "d44190c34f89facb",
+  "metric": {
+   "name": "p95"
+  },
+  "minRuns": 5,
+  "maxRuns": 10,
+  "marginPct": 5,
+  "cooldownSeconds": 5,
+  "scenario": {
+   "id": "d44190c34f89facb",
+   "name": "fase1-demo",
+   "target": {
+    "platform": "docker",
+    "container": "nacbench-demo-api",
+    "baseUrl": "http://nacbench-demo-api:8080"
+   },
+   "mode": "load",
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "weight": 9
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "weight": 1
+    }
+   ],
+   "profile": {
+    "type": "plateau",
+    "vus": 100,
+    "durationSeconds": 40,
+    "rate": 200,
+    "warmupSeconds": 10
+   }
+  },
+  "status": "completed",
+  "createdAt": "2026-11-16T22:50:08.151582663Z",
+  "endedAt": "2026-11-16T22:57:48.83386791Z",
+  "runs": [
+   {
+    "arm": "A",
+    "runId": "0be09fab6e09a84a",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.79,
+     "cpu_per_request": 0.0806359414076456,
+     "error_rate": 0,
+     "p50": 0.36,
+     "p95": 4.73,
+     "p99": 5.54
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "95a39d5a442a84ca",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.82,
+     "cpu_per_request": 0.08275245755138518,
+     "error_rate": 0,
+     "p50": 0.35,
+     "p95": 4.87,
+     "p99": 5.65
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "c4da445e92c4388b",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.87,
+     "cpu_per_request": 0.08969274740978922,
+     "error_rate": 0,
+     "p50": 0.36,
+     "p95": 4.96,
+     "p99": 6.09
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "859265dd52b5656b",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.8,
+     "cpu_per_request": 0.08275245755138518,
+     "error_rate": 0,
+     "p50": 0.34,
+     "p95": 4.86,
+     "p99": 5.53
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "558d94eb489133f6",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.86,
+     "cpu_per_request": 0.08972847445516258,
+     "error_rate": 0,
+     "p50": 0.37,
+     "p95": 4.93,
+     "p99": 6.01
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "9fbfed1e0058e359",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.88,
+     "cpu_per_request": 0.08962129331904252,
+     "error_rate": 0,
+     "p50": 0.4,
+     "p95": 5.12,
+     "p99": 6.61
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "c8d047196a96bf11",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.88,
+     "cpu_per_request": 0.09046087888531618,
+     "error_rate": 0,
+     "p50": 0.37,
+     "p95": 5.02,
+     "p99": 6.2
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "dfcb3aa9c1144a47",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.9,
+     "cpu_per_request": 0.09252904378909742,
+     "error_rate": 0,
+     "p50": 0.39,
+     "p95": 5.05,
+     "p99": 6.33
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "3a12b5f2314353f4",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.84,
+     "cpu_per_request": 0.08729903536977492,
+     "error_rate": 0,
+     "p50": 0.37,
+     "p95": 4.93,
+     "p99": 5.77
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "e540d24d257565e8",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.84,
+     "cpu_per_request": 0.08685244730260806,
+     "error_rate": 0,
+     "p50": 0.36,
+     "p95": 4.9,
+     "p99": 5.74
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   }
+  ],
+  "result": {
+   "outcome": "sem_diferenca",
+   "primary": {
+    "nA": 5,
+    "nB": 5,
+    "medianA": 4.93,
+    "medianB": 4.96,
+    "diff": 0.03000000000000025,
+    "lo": -0.08999999999999986,
+    "hi": 0.2599999999999998,
+    "diffPct": 0.6085192697768813,
+    "loPct": -1.825557809330626,
+    "hiPct": 5.27383367139959,
+    "marginAbs": 0.5,
+    "outcome": "sem_diferenca",
+    "why": "o intervalo de 95% da diferença cabe inteiro dentro do limite prático"
+   },
+   "guards": [
+    {
+     "metric": "error_rate",
+     "nA": 5,
+     "nB": 5,
+     "medianA": 0,
+     "medianB": 0,
+     "diff": 0,
+     "lo": 0,
+     "hi": 0,
+     "diffPct": 0,
+     "loPct": 0,
+     "hiPct": 0,
+     "marginAbs": 0.1,
+     "outcome": "sem_diferenca",
+     "why": "o intervalo de 95% da diferença cabe inteiro dentro do limite prático"
+    },
+    {
+     "metric": "cpu_per_request",
+     "nA": 5,
+     "nB": 5,
+     "medianA": 0.08729903536977492,
+     "medianB": 0.08962129331904252,
+     "diff": 0.002322257949267603,
+     "lo": -0.005676596486489355,
+     "hi": 0.008985351911396919,
+     "diffPct": 2.6601186822181386,
+     "loPct": -6.502473323381913,
+     "hiPct": 10.292613055043985,
+     "marginAbs": 0.008729903536977491,
+     "outcome": "inconclusivo",
+     "why": "o intervalo de 95% inclui zero e é mais largo que o limite prático: o ruído não deixa afirmar"
+    }
+   ],
+   "noisePct": 5.27383367139959,
+   "notes": [
+    "Métrica principal: o intervalo de 95% da diferença cabe inteiro dentro do limite prático.",
+    "Piso de ruído deste cenário neste ambiente: 5.3% na métrica principal. Ganhos menores que cerca de 10.5% não são detectáveis aqui."
+   ]
+  }
+ },
+ "ab": {
+  "id": "294421ee8af9e75b",
+  "name": "fase1-demo",
+  "scenarioId": "d44190c34f89facb",
+  "b": {
+   "platform": "docker",
+   "container": "nacbench-demo-api-b",
+   "baseUrl": "http://nacbench-demo-api-b:8080"
+  },
+  "metric": {
+   "name": "p95"
+  },
+  "minRuns": 5,
+  "maxRuns": 10,
+  "marginPct": 5,
+  "cooldownSeconds": 5,
+  "scenario": {
+   "id": "d44190c34f89facb",
+   "name": "fase1-demo",
+   "target": {
+    "platform": "docker",
+    "container": "nacbench-demo-api",
+    "baseUrl": "http://nacbench-demo-api:8080"
+   },
+   "mode": "load",
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "weight": 9
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "weight": 1
+    }
+   ],
+   "profile": {
+    "type": "plateau",
+    "vus": 100,
+    "durationSeconds": 40,
+    "rate": 200,
+    "warmupSeconds": 10
+   }
+  },
+  "status": "completed",
+  "createdAt": "2026-11-16T22:57:50.480654458Z",
+  "endedAt": "2026-11-16T23:05:31.203433262Z",
+  "runs": [
+   {
+    "arm": "A",
+    "runId": "5c141fd7123f02ac",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.87,
+     "cpu_per_request": 0.08863879957127548,
+     "error_rate": 0,
+     "p50": 0.4,
+     "p95": 5.07,
+     "p99": 6.12
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "95449dd781205f99",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 21.44,
+     "cpu_per_request": 0.10317970703822794,
+     "error_rate": 0,
+     "p50": 20.95,
+     "p95": 25.74,
+     "p99": 27.13
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "a76b5087fb3baa88",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 21.3,
+     "cpu_per_request": 0.09389067524115756,
+     "error_rate": 0,
+     "p50": 20.84,
+     "p95": 25.43,
+     "p99": 26.35
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "c610667b75b8e4c9",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.83,
+     "cpu_per_request": 0.08704894605216146,
+     "error_rate": 0,
+     "p50": 0.33,
+     "p95": 4.89,
+     "p99": 5.54
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "79cd4e5347925f6c",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.79,
+     "cpu_per_request": 0.08270811003929976,
+     "error_rate": 0,
+     "p50": 0.33,
+     "p95": 4.84,
+     "p99": 5.63
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "9ac86aff90eab0ee",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 21.3,
+     "cpu_per_request": 0.0938549481957842,
+     "error_rate": 0,
+     "p50": 20.83,
+     "p95": 25.4,
+     "p99": 26.19
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "9d4001477fd1fb3b",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 21.43,
+     "cpu_per_request": 0.10303679885673457,
+     "error_rate": 0,
+     "p50": 20.95,
+     "p95": 25.78,
+     "p99": 27.65
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "f66e1fcbec2a9c90",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.86,
+     "cpu_per_request": 0.08604110813226094,
+     "error_rate": 0,
+     "p50": 0.41,
+     "p95": 4.97,
+     "p99": 5.81
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "A",
+    "runId": "64850fde4548ac29",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 0.94,
+     "cpu_per_request": 0.09619302949061663,
+     "error_rate": 0,
+     "p50": 0.42,
+     "p95": 5.23,
+     "p99": 6.86
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   },
+   {
+    "arm": "B",
+    "runId": "34ede96c4c28cdcf",
+    "status": "completed",
+    "valid": true,
+    "values": {
+     "avg": 21.38,
+     "cpu_per_request": 0.10067917783735475,
+     "error_rate": 0,
+     "p50": 20.92,
+     "p95": 25.49,
+     "p99": 26.44
+    },
+    "version": "nacbench-demo-api@sha256:0a0772efc78e283cc5b9ba386d2f0490cbb65300aa53bcb4707cbefac35676d4"
+   }
+  ],
+  "result": {
+   "outcome": "piorou",
+   "primary": {
+    "nA": 5,
+    "nB": 5,
+    "medianA": 4.97,
+    "medianB": 25.49,
+    "diff": 20.52,
+    "lo": 20.259999999999998,
+    "hi": 20.89,
+    "diffPct": 412.877263581489,
+    "loPct": 407.64587525150904,
+    "hiPct": 420.32193158953726,
+    "marginAbs": 0.5,
+    "outcome": "piorou",
+    "why": "o intervalo de 95% exclui zero para o lado ruim"
+   },
+   "guards": [
+    {
+     "metric": "error_rate",
+     "nA": 5,
+     "nB": 5,
+     "medianA": 0,
+     "medianB": 0,
+     "diff": 0,
+     "lo": 0,
+     "hi": 0,
+     "diffPct": 0,
+     "loPct": 0,
+     "hiPct": 0,
+     "marginAbs": 0.1,
+     "outcome": "sem_diferenca",
+     "why": "o intervalo de 95% da diferença cabe inteiro dentro do limite prático"
+    },
+    {
+     "metric": "cpu_per_request",
+     "nA": 5,
+     "nB": 5,
+     "medianA": 0.08704894605216146,
+     "medianB": 0.10067917783735475,
+     "diff": 0.013630231785193292,
+     "lo": 0.00448614834673812,
+     "hi": 0.01797106779805499,
+     "diffPct": 15.658123852557374,
+     "loPct": 5.153592949936385,
+     "hiPct": 20.64478504689347,
+     "marginAbs": 0.008704894605216146,
+     "outcome": "piorou",
+     "why": "o intervalo de 95% exclui zero para o lado ruim"
+    }
+   ],
+   "noisePct": 5.27383367139959,
+   "notes": [
+    "Métrica principal: o intervalo de 95% exclui zero para o lado ruim.",
+    "A métrica de guarda cpu_per_request piorou: o resultado é \"piorou\" mesmo com a principal em \"piorou\".",
+    "A e B rodam a mesma imagem: na prática isto é um teste A/A."
+   ]
+  }
+ }
+}

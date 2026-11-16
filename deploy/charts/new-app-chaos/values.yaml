@@ -41,6 +41,36 @@ observability:
   grafanaUrl: /grafana
   grafanaProxyUrl: http://lgtm.observability:3000
 
+# Permissões do backend no cluster.
+# targetNamespaces vazio: um ClusterRole deixa criar falhas do Chaos Mesh em qualquer namespace
+# (o comportamento de sempre; serve para o KIND local).
+# Com uma lista (ex.: [demo, pix, dorigao]): o ClusterRole fica só de leitura, e criar falhas e
+# ler logs passa a valer só nesses namespaces, por Role + RoleBinding em cada um. Os namespaces
+# precisam existir antes do helm install. Use junto com guard.allowedTargetNamespaces.
+rbac:
+  targetNamespaces: []
+
+# Correções automáticas (Fase 2 da docs/analise-evolucao.md): com enabled, o chart cria o namespace
+# do sandbox, e uma correção sugerida pela IA e aprovada por uma pessoa pode virar um PR em
+# rascunho. Precisa da ANTHROPIC_API_KEY e do PR_GITHUB_TOKEN no secretName, e de um cluster que
+# aplique NetworkPolicy (ver templates/sandbox.yaml).
+sandbox:
+  enabled: false
+  namespace: ""   # vazio = <namespace do app>-sandbox
+  image: new-app-chaos-agent:dev   # deploy/sandbox
+
+# Re-teste das correções (Fase 3): depois do PR, as versões A (commit testado) e B (branch do PR)
+# sobem neste namespace, um experimento A/B roda e o resultado é comentado no PR. As imagens
+# são construídas pelo CI do repositório alvo (deploy/target-ci/nac-build.yml).
+ephemeral:
+  enabled: false
+  namespace: ""    # vazio = <namespace do app>-ephemeral
+  # Secret de pull que você cria nesse namespace, se as imagens não forem públicas (vazio = públicas).
+  pullSecret: ""
+
+# Endereço público do app, para o PR apontar para a execução que o motivou (vazio = sem link).
+appUrl: ""
+
 # Secret com ANTHROPIC_API_KEY e GITHUB_TOKEN (opcionais). O scripts/kind-up.sh cria a
 # partir do .env; o chart só referencia, para a chave nunca passar pelo values.
 secretName: new-app-chaos-secrets
@@ -63,7 +93,9 @@ auth:
   adminUser: admin
   secureCookie: true
 
-# Travas para convidados (nuvem): URL base só de serviços do cluster e teto diário da IA.
+# Travas para convidados (nuvem): URL base só de serviços do cluster, namespaces onde alvos e
+# dependências podem estar e teto diário da IA. Os namespaces de sistema são negados sempre.
 guard:
   allowedTargetHosts: ""   # ex.: demo,pix,dorigao
+  allowedTargetNamespaces: ""   # ex.: demo,pix,dorigao (vazio = qualquer um que não seja de sistema)
   aiDailyLimit: 0          # 0 = sem limite
