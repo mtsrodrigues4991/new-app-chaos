@@ -237,7 +237,8 @@ docs/                especificação e funcionalidades
 - **MVP plus (Azure):** AKS com URL pública, HTTPS e login, liga e desliga pelo GitHub Actions, k6 em nó spot separado e Grafana isolado dos alvos.
 - **Fase 0 da [análise de evolução](docs/analise-evolucao.md), medição confiável:** carga por taxa de chegada, aquecimento, números da execução inteira e por endpoint, versão testada (imagem e commit) em cada execução, IA lendo o commit que rodou e trava de namespaces. Resultado medido em [docs/resultados/fase-0-medicao-confiavel.md](docs/resultados/fase-0-medicao-confiavel.md).
 - **Fase 1, antes e depois com estatística:** experimentos A/B e A/A com execuções intercaladas, regra de decisão sem IA (intervalo de 95% por bootstrap, limite prático, guardas e piso de ruído). Prova em [docs/resultados/fase-1-experimentos.md](docs/resultados/fase-1-experimentos.md).
-- **Fases 2 e 3, da sugestão ao PR com o resultado:** patch conferido, tentativa com aprovação, sandbox, PR em rascunho, build das versões no CI do alvo, cópias A e B, experimento e comentário no PR. Implementadas e testadas com simuladores; o teste com um PR real está descrito em [docs/analise-evolucao.md](docs/analise-evolucao.md).
+- **Fase 2, da sugestão ao PR:** patch conferido, tentativa com aprovação, sandbox e PR em rascunho. Provada com um PR real: [itau-case-pix#1](https://github.com/mtsrodrigues4991/itau-case-pix/pull/1).
+- **Fase 3, re-teste depois do PR:** build das versões no CI do alvo, cópias A e B, experimento e comentário no PR. Implementada e testada com simuladores; o que falta para rodar de ponta a ponta está em [docs/analise-evolucao.md](docs/analise-evolucao.md).
 
 ### 📋 Backlog
 
@@ -253,7 +254,7 @@ docs/                especificação e funcionalidades
 - [ ] Instrumentação OpenTelemetry nos alvos svc-* da Dorigao
 
 **Nuvem**
-- [ ] Histórico persistente na Azure (hoje some ao desligar)
+- [ ] Histórico persistente na Azure: o backup do banco no Blob está pronto (`scripts/azure-db-backup.sh`); falta chamá-lo nos workflows de ligar e desligar
 - [ ] Acesso de visualizador: quem não tem login vê execuções escolhidas, só leitura (para divulgar resultados)
 - [ ] Domínio próprio
 - [ ] Perfis de acesso (hoje quem entra pode tudo)

@@ -5,9 +5,8 @@ Data: 16/11/2026 · Commit analisado: `4ace3b7` (branch `main`)
 Este documento avalia o projeto contra a visão do produto e propõe o caminho até o ciclo
 "detecta → sugere → corrige → re-testa → compara".
 
-> **Andamento (16/11/2026):** as **Fases 0 (medição confiável) e 1 (antes e depois com estatística) estão concluídas**. As **Fases 2 e 3 estão
-> implementadas e testadas com simuladores, mas sem o teste de ponta a ponta** (falta uma chave válida da
-> Anthropic e, para a Fase 3, preparar o repositório alvo). O que foi
+> **Andamento (16/11/2026):** as **Fases 0 (medição confiável) e 1 (antes e depois com estatística) estão concluídas**. A **Fase 2 está concluída** (PR real aberto no `itau-case-pix`). A **Fase 3 está implementada e testada com
+> simuladores, mas o ciclo nunca rodou inteiro** (falta preparar o repositório alvo). O que foi
 > entregue, o critério de pronto conferido e os desvios do plano estão na [seção 6](#6-roadmap-em-fases); os
 > resultados medidos estão em [resultados/](resultados/).
 > As seções 1 e 2 descrevem o código como estava no commit `4ace3b7`, antes da fase; as lacunas que ela
@@ -315,12 +314,12 @@ A validação recusa sobreposição ([faults.go:180-182](../backend/internal/sce
 | O2 ✅ | Trava de namespaces e RBAC por namespace | Alto | Baixo | L11, L12 |
 | O3 ✅ | Carga por taxa de chegada e métricas por endpoint | Alto | Médio | L2, L3, L5 |
 | O4 ✅ | Experimento A/B com repetições e estatística | Alto | Médio | L1, L6, L7 |
-| O5 (feito, sem teste real) | Correção como patch verificável | Médio | Baixo | L8 |
+| O5 ✅ | Correção como patch verificável | Médio | Baixo | L8 |
 | O6 | Importar OpenAPI para preencher o cenário | Médio | Baixo | L15 |
 | O7 | Hipóteses de resiliência verificáveis | Alto | Médio | L17 |
 | O8 | Mapa de dependências a partir dos traces | Alto | Médio a alto | L16 |
 | O9 (feito, sem ciclo real) | Ambiente efêmero por experimento | Alto | Alto | L9 |
-| O10 (feito, sem PR real) | Agente que abre PR com a correção | Alto | Alto | L9, L10, L13, L14 |
+| O10 ✅ (até o PR) | Agente que abre PR com a correção | Alto | Alto | L9, L10, L13, L14 |
 | O11 | CLI para barrar regressão no CI | Médio | Médio | (backlog) |
 
 ### O1. Registrar a versão testada
@@ -764,9 +763,21 @@ Os dois decidiram com 5 execuções válidas por lado. Rodaram no modo Docker; u
 - A IA explicar o resultado do experimento: hoje a tela mostra a decisão, os números e as notas da regra,
   sem texto da IA.
 
-### Fase 2: da sugestão ao PR — implementada; falta o PR real
+### Fase 2: da sugestão ao PR — concluída
 
-Implementada em 16/11/2026. **O critério de pronto ainda não foi atendido:** nenhum PR real foi aberto.
+Concluída em 16/11/2026. **O critério de pronto foi atendido:** uma correção sugerida para o `pix-api` virou o PR em
+rascunho [itau-case-pix#1](https://github.com/mtsrodrigues4991/itau-case-pix/pull/1), com o build e os testes do repositório passando.
+
+| Passo do caminho real, no KIND | Resultado |
+|---|---|
+| Análise da IA da execução do `pix-api` (300 ms de latência até o Postgres) | 3 correções em 87 s; 2 com patch, e os 2 patches "aplicam" no commit `edc4989`. |
+| Tentativa da correção "Aumentar o pool Hikari por pod" | Registrada sem violações de escopo, aprovada, e rodou no sandbox. |
+| Sandbox | O patch aplicou como veio, o `mvn -B -q verify` passou, o agente não precisou rodar (custo US$ 0 depois da análise). |
+| PR | Rascunho, 1 arquivo, +2 linhas, branch `nac/fix-d24cd485681d20c1`; o commit tem como pai o commit testado. Conferido pelo `gh`. |
+| Limpeza | Nenhum Job, pod ou Secret sobrou no namespace do sandbox. |
+
+O que este teste **não** exercitou: o agente editando código (o patch não precisou) e uma rodada com os testes falhando.
+Esses caminhos passam só nos testes com simuladores.
 
 - O5: correção como patch verificável.
 - O10 (parcial): agente em sandbox que aplica o patch aprovado, roda build e testes e abre PR em rascunho.
@@ -784,11 +795,8 @@ Implementada em 16/11/2026. **O critério de pronto ainda não foi atendido:** n
 | Branch `nac/`, commit sobre o commit testado e PR em rascunho pela API do GitHub | **Passa contra um GitHub simulado** | Testes de unidade. Não exercitado contra o GitHub de verdade. |
 | App novo no KIND, com o namespace do sandbox | **Passa** | A conta do backend cria Jobs e Secrets no sandbox e não lê Secrets (`kubectl auth can-i`). O backend sobe com as correções ligadas quando o `PR_GITHUB_TOKEN` existe. |
 | Execução real do `pix-api` no KIND para a IA analisar | **Feita** | Com 300 ms de latência até o Postgres: p95 de 4,5 s, nota 38 e 1.872 requisições descartadas. |
-| Análise da IA devolvendo o patch, o agente no pod e o PR real | **Não rodou** | A Anthropic recusou a chave do `.env` (`401 invalid x-api-key`, conferido direto na API). |
-
-**Para fechar o critério de pronto:** pôr uma `ANTHROPIC_API_KEY` válida no `.env`, rodar
-`OBS=1 ONLY_APP=1 PIX_DIR=... ./scripts/kind-up.sh` (ele copia a chave para o cluster), pedir a análise da
-execução do cenário `fase2-pix-correcao`, usar "Tentar esta correção" numa sugestão que "aplica" e aprovar.
+| Análise da IA devolvendo o patch e o PR real | **Passa** | Ver a tabela acima (rodou depois da troca da chave da Anthropic). |
+| O agente editando código no pod | **Não exercitado de verdade** | Só com simuladores. |
 
 **Onde ficou cada peça:**
 
@@ -837,8 +845,8 @@ execução do cenário `fase2-pix-correcao`, usar "Tentar esta correção" numa 
 
 **Fora da fase, e ainda em aberto:**
 
-- O PR real no `itau-case-pix` (acima).
-- Medir "em 10 análises reais quantos diffs aplicam" (validação prevista no O5): nenhuma análise real rodou.
+- O agente editando código num caso real (patch que não aplica, ou build que falha).
+- Medir "em 10 análises reais quantos diffs aplicam" (validação prevista no O5): só uma análise real rodou (2 de 2 patches aplicaram).
 - Conferência visual das telas novas (passaram na checagem de tipos e no build).
 - L10 (teto de IA por custo, no app inteiro) e L14 (conteúdo não confiável) estão tratadas só dentro da
   tentativa de correção: teto de custo por tentativa, agente sem execução de comandos e limites sobre o diff.
@@ -863,13 +871,12 @@ Implementada em 16/11/2026. **O critério de pronto ainda não foi atendido:** o
 
 **Para fechar o critério de pronto, nesta ordem:**
 
-1. Fechar a Fase 2 (chave válida da Anthropic).
-2. No `itau-case-pix`: adicionar um `Dockerfile` (hoje ele vive neste repositório, em `deploy/targets/pix/`) e
+1. No `itau-case-pix`: adicionar um `Dockerfile` (hoje ele vive neste repositório, em `deploy/targets/pix/`) e
    o workflow [`deploy/target-ci/nac-build.yml`](../deploy/target-ci/nac-build.yml) em `.github/workflows/`.
-3. Dar ao `PR_GITHUB_TOKEN` a permissão Actions (leitura e escrita).
-4. Tornar o pacote `ghcr.io/mtsrodrigues4991/itau-case-pix` público, ou criar um Secret de pull no namespace
+2. Dar ao `PR_GITHUB_TOKEN` a permissão Actions (leitura e escrita).
+3. Tornar o pacote `ghcr.io/mtsrodrigues4991/itau-case-pix` público, ou criar um Secret de pull no namespace
    `new-app-chaos-ephemeral` e subir com `EPHEMERAL_PULL_SECRET=<nome>`.
-5. No cenário: workflow `nac-build.yml` e imagem `ghcr.io/mtsrodrigues4991/itau-case-pix`.
+4. No cenário: workflow `nac-build.yml` e imagem `ghcr.io/mtsrodrigues4991/itau-case-pix`.
 
 **Onde ficou cada peça:**
 

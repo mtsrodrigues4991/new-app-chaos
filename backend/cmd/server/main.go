@@ -27,8 +27,23 @@ func main() {
 	addr := ":" + getenv("PORT", "8080")
 	dbPath := getenv("DB_PATH", "data/app.db")
 
+	// "server backup <arquivo>": grava uma cópia consistente do banco e sai (usado pelo backup da
+	// nuvem, com o backend no ar).
+	if len(os.Args) == 3 && os.Args[1] == "backup" {
+		if err := store.Backup(dbPath, os.Args[2]); err != nil {
+			log.Fatalf("backup: %v", err)
+		}
+		log.Printf("backup do banco gravado em %s", os.Args[2])
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		log.Fatalf("criando pasta do banco: %v", err)
+	}
+	// Histórico trazido de um ambiente anterior (scripts/azure-db-backup.sh restore).
+	if ok, err := store.ApplyRestore(dbPath); err != nil {
+		log.Printf("aviso: %v", err)
+	} else if ok {
+		log.Printf("banco restaurado a partir de %s%s", dbPath, store.RestoreSuffix)
 	}
 	st, err := store.Open(dbPath)
 	if err != nil {
