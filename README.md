@@ -254,7 +254,7 @@ docs/                especificação e funcionalidades
 - [ ] Instrumentação OpenTelemetry nos alvos svc-* da Dorigao
 
 **Nuvem**
-- [ ] Histórico persistente na Azure: o backup do banco no Blob está pronto (`scripts/azure-db-backup.sh`); falta chamá-lo nos workflows de ligar e desligar
+- [x] Histórico persistente na Azure: o banco é guardado na storage account ao desligar e devolvido ao ligar (`scripts/azure-db-backup.sh`). Sem backup periódico: o que rodou desde o último "Desligar" se perde se o cluster for apagado por fora
 - [ ] Acesso de visualizador: quem não tem login vê execuções escolhidas, só leitura (para divulgar resultados)
 - [ ] Domínio próprio
 - [ ] Perfis de acesso (hoje quem entra pode tudo)

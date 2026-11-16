@@ -89,7 +89,7 @@ Teste real fica com o Mateus, no WSL dele (veja "Ambiente do Mateus").
   `obs` 1× D2as_v4, `load` 1× D2as_v4 spot (k6).
 - URL: https://new-app-chaos-aa7c69.eastus2.cloudapp.azure.com (usuário admin `mateus`).
 - Secrets do repositório (só os nomes): `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `CODE_GITHUB_TOKEN`, opcional `APP_USERS`.
-- **Sempre DESLIGAR o ambiente depois de testar** (custa ~US$ 0,55/h ligado). Histórico some ao desligar.
+- **Sempre DESLIGAR o ambiente depois de testar** (custa ~US$ 0,55/h ligado). O "Desligar" guarda o banco na storage account e o "Ligar" devolve (`scripts/azure-db-backup.sh`).
 - Nunca escreva segredos em arquivos, commits ou memória.
 
 ## Histórico (marcos e PRs)
