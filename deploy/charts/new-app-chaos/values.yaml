@@ -59,6 +59,15 @@ sandbox:
   namespace: ""   # vazio = <namespace do app>-sandbox
   image: new-app-chaos-agent:dev   # deploy/sandbox
 
+# Re-teste das correções (Fase 3): depois do PR, as versões A (commit testado) e B (branch do PR)
+# sobem neste namespace, um experimento A/B roda e o resultado é comentado no PR. As imagens
+# são construídas pelo CI do repositório alvo (deploy/target-ci/nac-build.yml).
+ephemeral:
+  enabled: false
+  namespace: ""    # vazio = <namespace do app>-ephemeral
+  # Secret de pull que você cria nesse namespace, se as imagens não forem públicas (vazio = públicas).
+  pullSecret: ""
+
 # Endereço público do app, para o PR apontar para a execução que o motivou (vazio = sem link).
 appUrl: ""
 

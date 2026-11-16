@@ -5,7 +5,9 @@ Data: 16/11/2026 · Commit analisado: `4ace3b7` (branch `main`)
 Este documento avalia o projeto contra a visão do produto e propõe o caminho até o ciclo
 "detecta → sugere → corrige → re-testa → compara".
 
-> **Andamento (16/11/2026):** as **Fases 0 (medição confiável) e 1 (antes e depois com estatística) estão concluídas**. O que foi
+> **Andamento (16/11/2026):** as **Fases 0 (medição confiável) e 1 (antes e depois com estatística) estão concluídas**. As **Fases 2 e 3 estão
+> implementadas e testadas com simuladores, mas sem o teste de ponta a ponta** (falta uma chave válida da
+> Anthropic e, para a Fase 3, preparar o repositório alvo). O que foi
 > entregue, o critério de pronto conferido e os desvios do plano estão na [seção 6](#6-roadmap-em-fases); os
 > resultados medidos estão em [resultados/](resultados/).
 > As seções 1 e 2 descrevem o código como estava no commit `4ace3b7`, antes da fase; as lacunas que ela
@@ -313,12 +315,12 @@ A validação recusa sobreposição ([faults.go:180-182](../backend/internal/sce
 | O2 ✅ | Trava de namespaces e RBAC por namespace | Alto | Baixo | L11, L12 |
 | O3 ✅ | Carga por taxa de chegada e métricas por endpoint | Alto | Médio | L2, L3, L5 |
 | O4 ✅ | Experimento A/B com repetições e estatística | Alto | Médio | L1, L6, L7 |
-| O5 | Correção como patch verificável | Médio | Baixo | L8 |
+| O5 (feito, sem teste real) | Correção como patch verificável | Médio | Baixo | L8 |
 | O6 | Importar OpenAPI para preencher o cenário | Médio | Baixo | L15 |
 | O7 | Hipóteses de resiliência verificáveis | Alto | Médio | L17 |
 | O8 | Mapa de dependências a partir dos traces | Alto | Médio a alto | L16 |
-| O9 | Ambiente efêmero por experimento | Alto | Alto | L9 |
-| O10 | Agente que abre PR com a correção | Alto | Alto | L9, L10, L13, L14 |
+| O9 (feito, sem ciclo real) | Ambiente efêmero por experimento | Alto | Alto | L9 |
+| O10 (feito, sem PR real) | Agente que abre PR com a correção | Alto | Alto | L9, L10, L13, L14 |
 | O11 | CLI para barrar regressão no CI | Médio | Médio | (backlog) |
 
 ### O1. Registrar a versão testada
@@ -762,18 +764,147 @@ Os dois decidiram com 5 execuções válidas por lado. Rodaram no modo Docker; u
 - A IA explicar o resultado do experimento: hoje a tela mostra a decisão, os números e as notas da regra,
   sem texto da IA.
 
-### Fase 2: da sugestão ao PR
+### Fase 2: da sugestão ao PR — implementada; falta o PR real
+
+Implementada em 16/11/2026. **O critério de pronto ainda não foi atendido:** nenhum PR real foi aberto.
 
 - O5: correção como patch verificável.
 - O10 (parcial): agente em sandbox que aplica o patch aprovado, roda build e testes e abre PR em rascunho.
   Sem implantação automática.
 - **Pronto quando:** uma correção sugerida para o `pix-api` vira um PR que compila e passa nos testes dele.
 
-### Fase 3: ciclo completo
+**O que foi conferido, e como:**
+
+| Parte do caminho | Resultado | Como |
+|---|---|---|
+| Patch conferido com `git apply --check`, inclusive dentro de outro repositório git | **Passa** | Testes de unidade com o `git` de verdade. |
+| Limites de escopo sobre o diff (tamanho, caminhos proibidos, testes, dependências) | **Passa** | Testes de unidade. Um deles achou um defeito real no leitor de diff, corrigido: num diff de vários arquivos sem `diff --git`, o segundo arquivo escapava da conferência. |
+| Nada roda sem aprovação; só o administrador aprova; sem build verde não há PR | **Passa** | Testes do orquestrador e da API, com sandbox e GitHub simulados. |
+| Os quatro passos do pod contra o `itau-case-pix` real | **Passa** | Rodados com Docker, sem privilégios, no commit `edc4989`: um patch de configuração aplicou como veio e o `mvn -B -q verify` passou em 53 s. O agente não rodou (não foi preciso). |
+| Branch `nac/`, commit sobre o commit testado e PR em rascunho pela API do GitHub | **Passa contra um GitHub simulado** | Testes de unidade. Não exercitado contra o GitHub de verdade. |
+| App novo no KIND, com o namespace do sandbox | **Passa** | A conta do backend cria Jobs e Secrets no sandbox e não lê Secrets (`kubectl auth can-i`). O backend sobe com as correções ligadas quando o `PR_GITHUB_TOKEN` existe. |
+| Execução real do `pix-api` no KIND para a IA analisar | **Feita** | Com 300 ms de latência até o Postgres: p95 de 4,5 s, nota 38 e 1.872 requisições descartadas. |
+| Análise da IA devolvendo o patch, o agente no pod e o PR real | **Não rodou** | A Anthropic recusou a chave do `.env` (`401 invalid x-api-key`, conferido direto na API). |
+
+**Para fechar o critério de pronto:** pôr uma `ANTHROPIC_API_KEY` válida no `.env`, rodar
+`OBS=1 ONLY_APP=1 PIX_DIR=... ./scripts/kind-up.sh` (ele copia a chave para o cluster), pedir a análise da
+execução do cenário `fase2-pix-correcao`, usar "Tentar esta correção" numa sugestão que "aplica" e aprovar.
+
+**Onde ficou cada peça:**
+
+| Item | Código |
+|---|---|
+| Patch no relatório da IA e conferência | [report.go](../backend/internal/analysis/report.go) (`Fix.Diff`, `checkPatch`) |
+| Leitura do diff, `git apply` e limites de escopo | [patch.go](../backend/internal/patch/patch.go), [guard.go](../backend/internal/patch/guard.go) |
+| Tentativa: aprovação, rodadas, auditoria | [fix.go](../backend/internal/fix/fix.go), [manager.go](../backend/internal/fix/manager.go) |
+| Sandbox: Job, Secret da rodada, leitura do resultado | [sandbox.go](../backend/internal/sandbox/sandbox.go) |
+| Imagem e passos do pod | [deploy/sandbox](../deploy/sandbox) |
+| Publicação do PR em rascunho | [ghpr.go](../backend/internal/ghpr/ghpr.go) |
+| Namespace do sandbox, RBAC e NetworkPolicy | [sandbox.yaml](../deploy/charts/new-app-chaos/templates/sandbox.yaml) |
+| API e tela | [fixes.go](../backend/internal/api/fixes.go), [Fixes.tsx](../frontend/src/pages/Fixes.tsx) |
+
+**Desvios do plano e decisões:**
+
+1. **O agente não executa comandos.** A seção 5.3 propõe um agente que edita, compila e testa em laço dentro
+   do sandbox. Aqui o pod tem passos separados: o agente (Claude Code em modo restrito, só com ferramentas
+   de arquivo) edita, e o build e os testes rodam em outro container, com a imagem do cenário e sem
+   credencial. Quando o build falha, uma nova rodada entrega o fim do log ao agente (até 3 rodadas). O
+   código do repositório nunca roda no mesmo container que a chave da Anthropic.
+2. **O agente só entra quando é preciso.** Se o patch aplica como veio e os testes passam, não há chamada
+   de modelo nenhuma depois da aprovação.
+3. **O teto é de custo, não de turnos.** O Claude Code 2.1 não tem limite de turnos na linha de comando;
+   tem `--max-budget-usd`. Cada tentativa tem teto de US$ 3. A versão do Claude Code está fixada na imagem.
+4. **O PR sai pela API de dados do git, sem `git push`.** O backend monta o commit a partir do diff final e
+   do conteúdo dos arquivos. É o "passo separado, sem modelo" da seção 5.3: quem lê conteúdo não confiável
+   produz só um diff, e só o backend segura o token de escrita.
+5. **Credencial: token fine-grained próprio (`PR_GITHUB_TOKEN`)**, como você escolheu, separado do
+   `GITHUB_TOKEN` de leitura. GitHub App fica para depois.
+6. **A proteção de branch é sua.** O código só cria branches `nac/...` e nunca escreve no branch de destino,
+   mas o `itau-case-pix` não tem proteção no `master`: hoje nada no GitHub impede um token com
+   `contents:write` de escrever lá. Recomendo ligar antes do primeiro PR real.
+7. **Aprovador = administrador.** Com o login ligado, só o administrador aprova ou recusa; quem pediu e quem
+   decidiu ficam registrados. Não há um papel de "aprovador" separado do de administrador (L13 continua
+   parcialmente aberta).
+8. **Uma tentativa interrompida não é retomada.** Se o backend reinicia no meio, ela vira "falhou": a
+   aprovação valia para aquela rodada.
+9. **Rede do sandbox:** saída só para o DNS e para a internet, com as faixas privadas bloqueadas, por
+   NetworkPolicy. Não restringe por domínio (GitHub, Anthropic, registries), o que exigiria um proxy de saída.
+   Não verifiquei se o KIND aplica a regra; na AKS de hoje ela é ignorada, e por isso o sandbox fica
+   desligado lá.
+10. **Repositório privado:** o passo de checkout recebe o token de **leitura**. O de escrita nunca entra no pod.
+11. **Como construir e testar é configuração do cenário** (imagem e comando), não descoberta automática.
+12. **O `git` entrou na imagem do backend**, para o `git apply --check`.
+
+**Fora da fase, e ainda em aberto:**
+
+- O PR real no `itau-case-pix` (acima).
+- Medir "em 10 análises reais quantos diffs aplicam" (validação prevista no O5): nenhuma análise real rodou.
+- Conferência visual das telas novas (passaram na checagem de tipos e no build).
+- L10 (teto de IA por custo, no app inteiro) e L14 (conteúdo não confiável) estão tratadas só dentro da
+  tentativa de correção: teto de custo por tentativa, agente sem execução de comandos e limites sobre o diff.
+
+### Fase 3: ciclo completo — implementada; falta rodar de ponta a ponta
+
+Implementada em 16/11/2026. **O critério de pronto ainda não foi atendido:** o ciclo nunca rodou inteiro.
 
 - O9: namespace efêmero com as versões A e B.
 - Ligação entre PR, experimento e resultado comentado no PR.
 - **Pronto quando:** um clique em "tentar esta correção" termina num PR com o resultado estatístico, e nada sobra no cluster.
+
+**O que foi conferido, e como:**
+
+| Parte do ciclo | Resultado | Como |
+|---|---|---|
+| Sequência inteira: build de A e B, cópias, experimento, comentário, limpeza | **Passa com simuladores** | Testes do orquestrador: o caminho feliz, três falhas (build, cópias que não sobem, experimento sem decisão) e três casos em que o ciclo para no PR. Em toda falha o PR é avisado e nada sobra. |
+| Cópias A e B num cluster de verdade | **Passa no KIND** | Duas cópias do `pix-api` subiram (2 pods prontos cada), a cópia B respondeu HTTP 200 a uma consulta que vai ao Postgres pelo apelido, tudo foi apagado e o `pix-api` original não mudou. Usei a imagem local nos dois lados. |
+| Permissões do backend | **Passa no KIND** | Cria Deployments e Services no namespace efêmero e **não** em `pix` (`kubectl auth can-i`). |
+| Disparo e acompanhamento do build no CI do alvo | **Passa contra um Actions simulado** | Não exercitado contra o GitHub: o `itau-case-pix` não tem o workflow. |
+| Comentário no PR | **Passa contra um GitHub simulado** | Não há PR real ainda (Fase 2). |
+
+**Para fechar o critério de pronto, nesta ordem:**
+
+1. Fechar a Fase 2 (chave válida da Anthropic).
+2. No `itau-case-pix`: adicionar um `Dockerfile` (hoje ele vive neste repositório, em `deploy/targets/pix/`) e
+   o workflow [`deploy/target-ci/nac-build.yml`](../deploy/target-ci/nac-build.yml) em `.github/workflows/`.
+3. Dar ao `PR_GITHUB_TOKEN` a permissão Actions (leitura e escrita).
+4. Tornar o pacote `ghcr.io/mtsrodrigues4991/itau-case-pix` público, ou criar um Secret de pull no namespace
+   `new-app-chaos-ephemeral` e subir com `EPHEMERAL_PULL_SECRET=<nome>`.
+5. No cenário: workflow `nac-build.yml` e imagem `ghcr.io/mtsrodrigues4991/itau-case-pix`.
+
+**Onde ficou cada peça:**
+
+| Item | Código |
+|---|---|
+| Ciclo depois do PR e comentário do resultado | [cycle.go](../backend/internal/fix/cycle.go) |
+| Cópias A e B, apelidos das dependências, limpeza | [ephemeral.go](../backend/internal/ephemeral/ephemeral.go) |
+| Build no CI do alvo | [actions.go](../backend/internal/ghpr/actions.go); modelo do workflow em [deploy/target-ci](../deploy/target-ci) |
+| Namespace efêmero e RBAC | [ephemeral.yaml](../deploy/charts/new-app-chaos/templates/ephemeral.yaml) |
+| Tela | cartão "Re-teste" em [Fixes.tsx](../frontend/src/pages/Fixes.tsx) |
+
+**Desvios do plano e decisões:**
+
+1. **Um namespace efêmero fixo, não um por experimento.** Criar namespaces exigiria dar ao backend escrita
+   em Deployments no cluster inteiro. O chart cria um namespace só para isso; cada experimento marca os seus
+   objetos e os apaga no fim, e a limpeza se repete na subida do backend.
+2. **As dependências não são copiadas.** A seção 5.3 fala em "cópia do alvo e das dependências". Copiar um
+   banco com dados e segredos não é genérico. As cópias A e B usam as mesmas dependências do alvo, por
+   apelidos (`ExternalName`). Consequência: A e B dividem o banco, e o estado que uma execução deixa afeta
+   a seguinte; a intercalação distribui isso entre os lados, mas não elimina.
+3. **Só alvos autocontidos.** Um Deployment que usa Secret, ConfigMap ou volume do namespace dele é
+   recusado com a lista do que falta, em vez de copiado pela metade.
+4. **A e B são construídas pelo mesmo workflow**, no CI do repositório alvo, como você escolheu. A não é a
+   imagem que já estava implantada: comparar com ela mediria também a diferença de build.
+5. **O ciclo continua sozinho depois do PR**, sem segunda aprovação: a aprovação da tentativa cobre o
+   re-teste, que não escreve em nenhum alvo de verdade.
+6. **A métrica do experimento sai do texto da correção** ("o que deve melhorar"); na dúvida, p95. A métrica
+   por endpoint não é inferida.
+7. **O piso de ruído vem do teste A/A do cenário original**, rodado contra o alvo de verdade, e não contra
+   as cópias. Serve de referência, não de medida exata do ambiente efêmero.
+8. **Se o re-teste falha, o PR recebe um comentário dizendo que o ganho não foi medido.** Silêncio pareceria
+   "sem diferença".
+9. **O workflow de build é um modelo que você instala no repositório alvo.** O app não cria workflows em
+   repositórios (o limite de escopo proíbe tocar em CI).
+10. **Desligado na Azure**, junto com o sandbox: sem motor de NetworkPolicy lá.
 
 ### Trilha paralela: cobertura do teste
 

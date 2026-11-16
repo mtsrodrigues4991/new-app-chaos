@@ -99,6 +99,12 @@ spec:
                   key: PR_GITHUB_TOKEN
                   optional: true
             {{- end }}
+            {{- if .Values.ephemeral.enabled }}
+            - { name: EPHEMERAL_NAMESPACE, value: {{ .Values.ephemeral.namespace | default (printf "%s-ephemeral" .Release.Namespace) | quote }} }
+            {{- with .Values.ephemeral.pullSecret }}
+            - { name: EPHEMERAL_PULL_SECRET, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
             {{- with .Values.appUrl }}
             - { name: APP_URL, value: {{ . | quote }} }
             {{- end }}

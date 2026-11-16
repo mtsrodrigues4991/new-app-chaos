@@ -731,6 +731,20 @@ function CodeFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => 
           <input value={code.testCommand ?? ''} placeholder="ex.: mvn -B -q verify" onChange={(e) => setCode({ testCommand: e.target.value })} />
         </label>
       </div>
+      <p className="muted small">
+        Para a correção ser re-testada depois do PR (versão atual contra a do PR, num experimento A/B com o resultado comentado no PR), diga como o
+        CI do repositório constrói a imagem. O modelo do workflow está em <code>deploy/target-ci/nac-build.yml</code>. Vazio = o ciclo para no PR.
+      </p>
+      <div className="row">
+        <label>
+          Workflow de build (opcional)
+          <input value={code.buildWorkflow ?? ''} placeholder="ex.: nac-build.yml" onChange={(e) => setCode({ buildWorkflow: e.target.value })} />
+        </label>
+        <label>
+          Imagem publicada (sem tag)
+          <input value={code.image ?? ''} placeholder="ex.: ghcr.io/dono/repo" onChange={(e) => setCode({ image: e.target.value })} />
+        </label>
+      </div>
     </fieldset>
   );
 }

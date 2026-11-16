@@ -144,7 +144,8 @@ kubectl -n "$NS" create secret generic new-app-chaos-secrets --from-env-file="$s
 [[ -s "$secret_env" ]] || echo "aviso: sem ANTHROPIC_API_KEY no .env; a análise por IA fica desativada até preencher e rodar de novo."
 helm upgrade --install new-app-chaos deploy/charts/new-app-chaos -n "$NS" \
   --set buildId="$BUILD_ID" --set backend.k6Image="$K6_IMAGE" --set observability.enabled="$OBS_ON" \
-  --set sandbox.enabled=true --set appUrl="http://localhost:$UI_PORT" --wait --timeout 5m >/dev/null
+  --set sandbox.enabled=true --set ephemeral.enabled=true --set ephemeral.pullSecret="${EPHEMERAL_PULL_SECRET:-}" \
+  --set appUrl="http://localhost:$UI_PORT" --wait --timeout 5m >/dev/null
 
 # --- alvos ---
 target() { # target <release> <namespace> [args do helm...]

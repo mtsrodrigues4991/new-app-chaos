@@ -116,7 +116,16 @@ export type Scenario = {
 
 // Repositório da aplicação no GitHub, lido pela IA.
 // testImage e testCommand dizem como construir e testar o repositório; só as correções automáticas usam.
-export type CodeRepo = { repo: string; branch: string; path?: string; testImage?: string; testCommand?: string };
+// buildWorkflow e image dizem como o CI do repositório constrói a imagem de uma versão; só o re-teste das correções usa.
+export type CodeRepo = {
+  repo: string;
+  branch: string;
+  path?: string;
+  testImage?: string;
+  testCommand?: string;
+  buildWorkflow?: string;
+  image?: string;
+};
 
 export type SLO = { p95Ms: number; errorRatePct: number; availabilityPct: number };
 
@@ -328,6 +337,20 @@ export type FixRound = {
   testLog?: string;
   error?: string;
 };
+export type BuildRun = { id: number; url: string; status: string; conclusion: string };
+// O que acontece depois do PR: build das versões, experimento A/B e comentário com o resultado.
+export type FixCycle = {
+  stage: 'building' | 'deploying' | 'testing' | 'done' | 'failed' | 'skipped';
+  note?: string;
+  imageA?: string;
+  imageB?: string;
+  buildA?: BuildRun;
+  buildB?: BuildRun;
+  experimentId?: string;
+  outcome?: Outcome;
+  commented: boolean;
+  cleanedUp: boolean;
+};
 // Tentativa de transformar uma correção sugerida num PR em rascunho.
 export type FixAttempt = {
   id: string;
@@ -358,6 +381,7 @@ export type FixAttempt = {
   finalDiff?: string;
   costUsd: number;
   pr?: { number: number; url: string; branch: string; commit: string };
+  cycle?: FixCycle;
   highlights?: string[];
   // Só no GET de uma tentativa: por que não pode ser aprovada agora e se quem está logado pode decidir.
   blocked?: string;

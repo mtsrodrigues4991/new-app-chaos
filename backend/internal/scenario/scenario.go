@@ -191,6 +191,12 @@ type CodeRepo struct {
 	// uma correção automática antes de abrir o PR; vazios = correção automática desligada.
 	TestImage   string `json:"testImage,omitempty"`
 	TestCommand string `json:"testCommand,omitempty"`
+	// BuildWorkflow é o arquivo do workflow do repositório que constrói a imagem de uma versão
+	// (ex.: nac-build.yml; modelo em deploy/target-ci) e Image é onde ele a publica, sem a tag
+	// (ex.: ghcr.io/dono/repo). Com os dois, uma correção que virou PR é testada contra a versão
+	// atual num experimento A/B; vazios = o ciclo para no PR.
+	BuildWorkflow string `json:"buildWorkflow,omitempty"`
+	Image         string `json:"image,omitempty"`
 }
 
 // DefaultSLO são os valores sugeridos ao criar um cenário.

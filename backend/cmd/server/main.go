@@ -12,6 +12,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ephemeral"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/fix"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ghpr"
@@ -108,13 +109,25 @@ func main() {
 	if err := sb.Cleanup(context.Background()); err != nil {
 		log.Printf("aviso: limpando o sandbox das correções: %v", err)
 	}
-	fixes := &fix.Manager{Store: st, Sandbox: sb, Code: code, AppURL: os.Getenv("APP_URL"),
-		Publisher: &ghpr.Client{Token: os.Getenv("PR_GITHUB_TOKEN"), APIBase: os.Getenv("GITHUB_API_URL")}}
+	// Depois do PR: as versões A e B sobem num namespace próprio, o experimento roda e o
+	// resultado vai para o PR. As imagens são construídas pelo CI do repositório alvo.
+	envs := &ephemeral.Kube{Client: kc, Namespace: os.Getenv("EPHEMERAL_NAMESPACE"), PullSecret: os.Getenv("EPHEMERAL_PULL_SECRET")}
+	if err := envs.Cleanup(context.Background()); err != nil {
+		log.Printf("aviso: limpando os ambientes efêmeros: %v", err)
+	}
+	gh := &ghpr.Client{Token: os.Getenv("PR_GITHUB_TOKEN"), APIBase: os.Getenv("GITHUB_API_URL")}
+	fixes := &fix.Manager{Store: st, Sandbox: sb, Code: code, AppURL: os.Getenv("APP_URL"), Publisher: gh,
+		Builder: gh, Envs: envs, Experiments: exps, Scenarios: st}
 	fixes.Recover(context.Background())
 	if why := fixes.Ready(); why != "" {
 		log.Printf("correções automáticas desligadas: %s", why)
 	} else {
 		log.Printf("correções automáticas: sandbox no namespace %q, imagem %q", sb.Namespace, sb.Image)
+	}
+	if why := envs.Ready(); why != "" {
+		log.Printf("re-teste automático das correções desligado: %s", why)
+	} else {
+		log.Printf("re-teste automático das correções: versões A e B no namespace %q", envs.Namespace)
 	}
 
 	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, Experiments: exps, Fixes: fixes, AI: reg, Code: code, Auth: au, Guard: guard}

@@ -29,7 +29,7 @@ e uma análise da IA dizendo o que quebrou, por quê e onde corrigir no código.
 | 🎯 **Veredito** | SLOs editáveis e uma nota de resiliência de 0 a 100 (inspirada no Resiliency Score do krkn), sem IA e reproduzível. |
 | 🤖 **IA** | Relatório sob demanda com ponto de quebra, causas e correções que apontam arquivo e linha do seu repositório. Compara com uma execução de referência e tem chat por execução. |
 | ⚖️ **Antes e depois** | Experimento A/B: o mesmo teste contra duas versões, repetido e intercalado, com decisão estatística (melhorou, piorou, sem diferença ou inconclusivo) e teste A/A para medir o ruído do ambiente. |
-| 🔧 **Correção** | Uma sugestão da IA vira um patch conferido e, depois que uma pessoa aprova, um PR em rascunho: aplicado num pod isolado, com o build e os testes do repositório passando antes. O merge é sempre seu. |
+| 🔧 **Correção** | Uma sugestão da IA vira um patch conferido e, depois que uma pessoa aprova, um PR em rascunho: aplicado num pod isolado, com o build e os testes do repositório passando antes. Depois o app re-testa a versão do PR contra a atual e comenta o resultado estatístico no PR. O merge é sempre seu. |
 | 🔭 **Observabilidade** | Opcional: Grafana com Prometheus, Loki, Tempo e Pyroscope. Heap, GC, traces lentos e profiling entram na análise. |
 
 Detalhes de cada funcionalidade em [docs/funcionalidades.md](docs/funcionalidades.md).
@@ -237,6 +237,7 @@ docs/                especificação e funcionalidades
 - **MVP plus (Azure):** AKS com URL pública, HTTPS e login, liga e desliga pelo GitHub Actions, k6 em nó spot separado e Grafana isolado dos alvos.
 - **Fase 0 da [análise de evolução](docs/analise-evolucao.md), medição confiável:** carga por taxa de chegada, aquecimento, números da execução inteira e por endpoint, versão testada (imagem e commit) em cada execução, IA lendo o commit que rodou e trava de namespaces. Resultado medido em [docs/resultados/fase-0-medicao-confiavel.md](docs/resultados/fase-0-medicao-confiavel.md).
 - **Fase 1, antes e depois com estatística:** experimentos A/B e A/A com execuções intercaladas, regra de decisão sem IA (intervalo de 95% por bootstrap, limite prático, guardas e piso de ruído). Prova em [docs/resultados/fase-1-experimentos.md](docs/resultados/fase-1-experimentos.md).
+- **Fases 2 e 3, da sugestão ao PR com o resultado:** patch conferido, tentativa com aprovação, sandbox, PR em rascunho, build das versões no CI do alvo, cópias A e B, experimento e comentário no PR. Implementadas e testadas com simuladores; o teste com um PR real está descrito em [docs/analise-evolucao.md](docs/analise-evolucao.md).
 
 ### 📋 Backlog
 

@@ -46,6 +46,12 @@ type Manager struct {
 	Limits    patch.Limits
 	// AppURL é o endereço público do app, para o PR apontar para a execução ("" = sem link).
 	AppURL string
+	// O ciclo depois do PR (todos opcionais; sem eles a tentativa termina no PR).
+	Builder     Builder
+	Envs        Envs
+	Experiments Experiments
+	Scenarios   Scenarios
+	CyclePoll   time.Duration
 
 	mu      sync.Mutex
 	running bool
@@ -357,6 +363,7 @@ func (m *Manager) publish(ctx context.Context, a *Attempt) {
 	now := time.Now().UTC()
 	a.Status, a.EndedAt = PROpen, &now
 	m.save(a)
+	m.cycle(ctx, a)
 }
 
 // changes devolve o conteúdo novo de cada arquivo do diff final.

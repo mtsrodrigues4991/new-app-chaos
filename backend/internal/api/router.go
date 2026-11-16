@@ -164,6 +164,14 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 			sc.Code.Path = strings.Trim(strings.TrimSpace(sc.Code.Path), "/")
 			sc.Code.TestImage = strings.TrimSpace(sc.Code.TestImage)
 			sc.Code.TestCommand = strings.TrimSpace(sc.Code.TestCommand)
+			sc.Code.BuildWorkflow = strings.TrimSpace(sc.Code.BuildWorkflow)
+			sc.Code.Image = strings.TrimSuffix(strings.TrimSpace(sc.Code.Image), "/")
+			if (sc.Code.BuildWorkflow == "") != (sc.Code.Image == "") {
+				return sc, errors.New("para re-testar correções, informe o workflow de build e a imagem; ou deixe os dois vazios")
+			}
+			if sc.Code.Image != "" && (strings.ContainsAny(sc.Code.Image, " \t\n@") || strings.Contains(sc.Code.Image[strings.LastIndex(sc.Code.Image, "/")+1:], ":") || strings.ContainsAny(sc.Code.BuildWorkflow, " \t\n/")) {
+				return sc, errors.New("a imagem vai sem tag nem digest (ex.: ghcr.io/dono/repo) e o workflow é só o nome do arquivo (ex.: nac-build.yml)")
+			}
 			if (sc.Code.TestImage == "") != (sc.Code.TestCommand == "") || strings.ContainsAny(sc.Code.TestImage, " \t\n") {
 				return sc, errors.New("para conferir correções, informe a imagem de build (sem espaços) e o comando de teste; ou deixe os dois vazios")
 			}

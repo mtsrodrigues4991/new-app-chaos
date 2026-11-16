@@ -71,6 +71,18 @@ Com o código da aplicação configurado no cenário, cada correção do relató
 - **Auditoria:** cada tentativa guarda o patch sugerido, as instruções dadas ao agente, o diff e o log de cada rodada, o custo e o resultado. Tentativas interrompidas por reinício do backend não são retomadas.
 - **Configuração:** no cenário, em "Código da aplicação", a imagem de build e o comando de teste. No ambiente, `PR_GITHUB_TOKEN` no `.env` (token fine-grained com Contents e Pull requests em leitura e escrita, só nos repositórios alvo). O `make kind-up` já liga o sandbox; na Azure ele fica desligado (o cluster de hoje não aplica NetworkPolicy).
 
+### Depois do PR: re-testar e comentar o resultado
+
+Se o cenário também disser como o CI do repositório constrói a imagem (o workflow e onde ela é publicada), o ciclo continua sozinho depois do PR:
+
+1. **Build no CI do repositório alvo.** O app dispara o workflow `nac-build.yml` do repositório (modelo em `deploy/target-ci/`) duas vezes: para o commit que rodou no teste (versão A) e para o branch do PR (versão B). As duas imagens saem do mesmo pipeline, e as credenciais de build e de registry ficam no repositório, fora do alcance do app e do agente.
+2. **Cópias A e B.** As duas versões sobem num namespace separado, como cópias do Deployment do alvo em que só a imagem muda. O Deployment de referência nunca é tocado. As dependências não são copiadas: as cópias falam com as mesmas, por apelidos com os nomes que o alvo já usa (ex.: `pix-postgres`).
+3. **Experimento A/B** contra as cópias, com a métrica que a correção disse que melhoraria (na dúvida, p95) e a mesma regra estatística dos outros experimentos.
+4. **Comentário no PR** com a decisão, as medianas, o intervalo de 95%, as guardas e o piso de ruído. Se o re-teste não chegar a um resultado, o PR recebe um comentário dizendo que o ganho não foi medido.
+5. **Limpeza.** As cópias são apagadas em qualquer desfecho, e de novo na subida do backend se ele caiu no meio.
+
+Limites: só alvos no Kubernetes; o alvo precisa ser autocontido (um Deployment que usa Secret, ConfigMap ou volume do namespace dele é recusado, em vez de copiado pela metade); o cenário precisa de carga por taxa de chegada. No cenário: "Workflow de build" e "Imagem publicada". No ambiente: o `PR_GITHUB_TOKEN` precisa também da permissão Actions (leitura e escrita), e o cluster precisa conseguir baixar a imagem (pacote público, ou um Secret de pull no namespace efêmero, informado em `EPHEMERAL_PULL_SECRET`).
+
 ## Caos
 
 Três modos por cenário (só carga, só caos, carga + caos). No editor, as falhas são blocos numa linha do tempo: arraste para mover, puxe as bordas para mudar a duração (setas do teclado também funcionam). Uma falha por vez neste marco. Falhas e parâmetros (nomes iguais aos do krkn):

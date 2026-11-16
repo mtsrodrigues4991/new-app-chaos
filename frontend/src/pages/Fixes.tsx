@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, FixAttempt, FixStatus } from '../api';
+import { api, FixAttempt, FixCycle, FixStatus, Outcome } from '../api';
 
 const statusLabel: Record<FixStatus, string> = {
   awaiting_approval: 'Esperando aprovação',
@@ -180,6 +180,8 @@ export function FixView({ id }: { id: string }) {
         )}
       </div>
 
+      {a.cycle && <CycleCard a={a} />}
+
       <div className="card">
         <div className="card-head">
           <h2>Escopo do patch sugerido</h2>
@@ -241,5 +243,77 @@ export function FixView({ id }: { id: string }) {
         <p className="muted">A primeira rodada está em andamento (baixar o código, aplicar o patch, build e testes). Costuma levar alguns minutos.</p>
       )}
     </section>
+  );
+}
+
+const stageLabel: Record<FixCycle['stage'], string> = {
+  building: 'Construindo as imagens de A e de B no CI do repositório',
+  deploying: 'Subindo as versões A e B',
+  testing: 'Rodando o experimento A/B',
+  done: 'Resultado comentado no PR',
+  failed: 'O re-teste não chegou a um resultado',
+  skipped: 'Sem re-teste automático',
+};
+
+const outcomeLabel: Record<Outcome, string> = {
+  melhorou: 'B melhorou',
+  piorou: 'B piorou',
+  sem_diferenca: 'Sem diferença',
+  inconclusivo: 'Inconclusivo',
+};
+const outcomeClass: Record<Outcome, string> = { melhorou: 'resiliente', piorou: 'fragil', sem_diferenca: '', inconclusivo: 'atencao' };
+
+// O que aconteceu depois do PR: a versão atual (A) contra a do PR (B).
+function CycleCard({ a }: { a: FixAttempt }) {
+  const c = a.cycle!;
+  const running = c.stage === 'building' || c.stage === 'deploying' || c.stage === 'testing';
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Re-teste: versão atual contra a do PR</h2>
+        <span className={`badge ${running ? 'running' : c.stage === 'done' ? 'completed' : c.stage === 'failed' ? 'failed' : ''}`}>{stageLabel[c.stage]}</span>
+      </div>
+      {c.outcome && (
+        <p style={{ fontSize: 20, margin: '12px 0' }}>
+          <span className={`grade-chip ${outcomeClass[c.outcome]}`}>{outcomeLabel[c.outcome]}</span>
+        </p>
+      )}
+      {c.note && <p className={c.stage === 'failed' ? 'error' : 'muted'}>{c.note}</p>}
+      <ul className="small">
+        {c.imageA && (
+          <li>
+            A (commit testado): <code>{c.imageA}</code>
+            {c.buildA?.url && (
+              <>
+                {' · '}
+                <a href={c.buildA.url} target="_blank" rel="noreferrer">
+                  build
+                </a>
+              </>
+            )}
+          </li>
+        )}
+        {c.imageB && (
+          <li>
+            B (branch do PR): <code>{c.imageB}</code>
+            {c.buildB?.url && (
+              <>
+                {' · '}
+                <a href={c.buildB.url} target="_blank" rel="noreferrer">
+                  build
+                </a>
+              </>
+            )}
+          </li>
+        )}
+        {c.experimentId && (
+          <li>
+            <a href={`#/experimentos/${c.experimentId}`}>Experimento A/B</a>: a decisão é estatística, sem IA
+          </li>
+        )}
+        {c.stage !== 'skipped' && <li>{c.commented ? 'Comentado no PR' : 'Ainda não comentado no PR'}</li>}
+        {c.stage !== 'skipped' && !running && <li>{c.cleanedUp ? 'As cópias A e B foram apagadas do cluster' : 'Atenção: as cópias A e B não foram apagadas do cluster'}</li>}
+      </ul>
+    </div>
   );
 }

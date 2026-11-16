@@ -81,16 +81,18 @@ type Attempt struct {
 	Status Status `json:"status"`
 	Error  string `json:"error,omitempty"`
 	// Quem pediu e quem aprovou ("" com o login desligado).
-	CreatedBy  string     `json:"createdBy,omitempty"`
-	DecidedBy  string     `json:"decidedBy,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	DecidedAt  *time.Time `json:"decidedAt,omitempty"`
-	EndedAt    *time.Time `json:"endedAt,omitempty"`
-	Rounds     []Round    `json:"rounds"`
-	FinalDiff  string     `json:"finalDiff,omitempty"` // o que foi para o PR, relativo à raiz do repositório
-	CostUSD    float64    `json:"costUsd"`
-	PR         *ghpr.PR   `json:"pr,omitempty"`
-	Highlights []string   `json:"highlights,omitempty"`
+	CreatedBy string     `json:"createdBy,omitempty"`
+	DecidedBy string     `json:"decidedBy,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	DecidedAt *time.Time `json:"decidedAt,omitempty"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	Rounds    []Round    `json:"rounds"`
+	FinalDiff string     `json:"finalDiff,omitempty"` // o que foi para o PR, relativo à raiz do repositório
+	CostUSD   float64    `json:"costUsd"`
+	PR        *ghpr.PR   `json:"pr,omitempty"`
+	// Cycle é o que aconteceu depois do PR: build das versões, experimento A/B e comentário (nil = não começou).
+	Cycle      *Cycle   `json:"cycle,omitempty"`
+	Highlights []string `json:"highlights,omitempty"`
 }
 
 // Limites de uma tentativa.
