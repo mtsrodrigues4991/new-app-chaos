@@ -186,6 +186,11 @@ type CodeRepo struct {
 	Repo   string `json:"repo"`           // dono/repo
 	Branch string `json:"branch"`         // padrão: main
 	Path   string `json:"path,omitempty"` // subpasta da aplicação (monorepo)
+	// TestImage e TestCommand dizem como construir e testar o repositório (ex.: a imagem
+	// maven:3.9-eclipse-temurin-17 e o comando "mvn -B -q verify"). Só são usados para conferir
+	// uma correção automática antes de abrir o PR; vazios = correção automática desligada.
+	TestImage   string `json:"testImage,omitempty"`
+	TestCommand string `json:"testCommand,omitempty"`
 }
 
 // DefaultSLO são os valores sugeridos ao criar um cenário.

@@ -251,29 +251,33 @@ type Pod struct {
 		} `json:"containers"`
 	} `json:"spec"`
 	Status struct {
-		Phase             string `json:"phase"`
-		PodIP             string `json:"podIP"`
-		Reason            string `json:"reason"`
-		Message           string `json:"message"`
-		ContainerStatuses []struct {
-			Name  string `json:"name"`
-			Image string `json:"image"`
-			// ImageID identifica o conteúdo em uso: nome@sha256:... (registry) ou sha256:... (imagem local).
-			ImageID      string `json:"imageID"`
-			Ready        bool   `json:"ready"`
-			RestartCount int    `json:"restartCount"`
-			State        struct {
-				Waiting *struct {
-					Reason  string `json:"reason"`
-					Message string `json:"message"`
-				} `json:"waiting"`
-				Terminated *struct {
-					ExitCode int    `json:"exitCode"`
-					Reason   string `json:"reason"`
-				} `json:"terminated"`
-			} `json:"state"`
-		} `json:"containerStatuses"`
+		Phase                 string            `json:"phase"`
+		PodIP                 string            `json:"podIP"`
+		Reason                string            `json:"reason"`
+		Message               string            `json:"message"`
+		InitContainerStatuses []ContainerStatus `json:"initContainerStatuses"`
+		ContainerStatuses     []ContainerStatus `json:"containerStatuses"`
 	} `json:"status"`
+}
+
+// ContainerStatus é o estado de um container do pod.
+type ContainerStatus struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	// ImageID identifica o conteúdo em uso: nome@sha256:... (registry) ou sha256:... (imagem local).
+	ImageID      string `json:"imageID"`
+	Ready        bool   `json:"ready"`
+	RestartCount int    `json:"restartCount"`
+	State        struct {
+		Waiting *struct {
+			Reason  string `json:"reason"`
+			Message string `json:"message"`
+		} `json:"waiting"`
+		Terminated *struct {
+			ExitCode int    `json:"exitCode"`
+			Reason   string `json:"reason"`
+		} `json:"terminated"`
+	} `json:"state"`
 }
 
 type list[T any] struct {

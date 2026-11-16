@@ -53,6 +53,24 @@ Um experimento roda o mesmo cenário contra duas versões e decide, sem IA, se a
 - **Exige carga por taxa de chegada** nas métricas de latência e erro: com carga em VUs a versão mais rápida receberia mais carga.
 - A execução de um experimento mostra de qual experimento e de que lado ela é. As do lado B não entram no histórico que o chat da IA usa (são de outro alvo).
 
+## Correções automáticas: da sugestão ao PR em rascunho
+
+Com o código da aplicação configurado no cenário, cada correção do relatório da IA vem também como **patch** (diff unificado), com a métrica que deve melhorar e o quanto.
+
+- **Patch conferido:** o backend roda `git apply --check` contra o commit analisado e mostra "aplica" ou "não aplica" ao lado da sugestão.
+- **Tentar esta correção:** registra uma tentativa de transformar a sugestão num pull request. **Nada roda antes de uma pessoa aprovar** (com o login ligado, só o administrador aprova ou recusa; fica registrado quem pediu e quem decidiu).
+- **Limites de escopo, conferidos sobre o diff e não sobre o prompt:** até 5 arquivos e 200 linhas; nada em pipelines de CI, arquivos de segredo, código de autenticação ou migrações de banco; em arquivo de teste só se acrescenta (apagar ou alterar um teste existente barra a tentativa); mudança em arquivo de dependências não barra, mas é destacada para quem aprova e no PR. Valem para o patch sugerido e para tudo que o agente escrever.
+- **Sandbox** (só no Kubernetes, namespace próprio): cada rodada é um pod sem conta de serviço, sem root e com Pod Security "restricted", em quatro passos:
+  1. *checkout:* baixa o commit testado e tenta aplicar o patch como veio;
+  2. *agente:* só roda se o patch não aplicou ou se o build da rodada anterior falhou. É o Claude Code em modo restrito, só com ferramentas de arquivo (não executa comandos nem acessa a rede), ignorando o `CLAUDE.md` e os hooks do repositório, com teto de custo. É o único passo que vê a chave da Anthropic;
+  3. *build e testes:* a imagem e o comando configurados no cenário (ex.: `maven:3.9-eclipse-temurin-17` e `mvn -B -q verify`). Não vê credencial nenhuma;
+  4. *relatório:* escreve o diff e o resultado no log, que é por onde o backend lê.
+  A rede do namespace só sai para o DNS e para a internet (as faixas privadas ficam bloqueadas, o que isola os alvos, o banco do app e a observabilidade). Isso depende de o cluster aplicar NetworkPolicy.
+- **Até 3 rodadas e US$ 3 por tentativa.** Se o build ou os testes falham, o agente recebe o fim do log e tenta de novo. Sem build verde, nenhum PR é aberto.
+- **Publicação sem modelo:** com o build verde, um passo determinístico do backend cria o branch `nac/fix-<id>` com um commit sobre o commit testado e abre o PR **em rascunho**, com a evidência (execução, commit, comando de teste, hipótese de ganho, quem aprovou). Usa o `PR_GITHUB_TOKEN`, um token de escrita separado do de leitura, que o agente nunca vê. O app não faz merge, não aprova PR e não reescreve branch.
+- **Auditoria:** cada tentativa guarda o patch sugerido, as instruções dadas ao agente, o diff e o log de cada rodada, o custo e o resultado. Tentativas interrompidas por reinício do backend não são retomadas.
+- **Configuração:** no cenário, em "Código da aplicação", a imagem de build e o comando de teste. No ambiente, `PR_GITHUB_TOKEN` no `.env` (token fine-grained com Contents e Pull requests em leitura e escrita, só nos repositórios alvo). O `make kind-up` já liga o sandbox; na Azure ele fica desligado (o cluster de hoje não aplica NetworkPolicy).
+
 ## Caos
 
 Três modos por cenário (só carga, só caos, carga + caos). No editor, as falhas são blocos numa linha do tempo: arraste para mover, puxe as bordas para mudar a duração (setas do teclado também funcionam). Uma falha por vez neste marco. Falhas e parâmetros (nomes iguais aos do krkn):

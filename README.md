@@ -29,6 +29,7 @@ e uma análise da IA dizendo o que quebrou, por quê e onde corrigir no código.
 | 🎯 **Veredito** | SLOs editáveis e uma nota de resiliência de 0 a 100 (inspirada no Resiliency Score do krkn), sem IA e reproduzível. |
 | 🤖 **IA** | Relatório sob demanda com ponto de quebra, causas e correções que apontam arquivo e linha do seu repositório. Compara com uma execução de referência e tem chat por execução. |
 | ⚖️ **Antes e depois** | Experimento A/B: o mesmo teste contra duas versões, repetido e intercalado, com decisão estatística (melhorou, piorou, sem diferença ou inconclusivo) e teste A/A para medir o ruído do ambiente. |
+| 🔧 **Correção** | Uma sugestão da IA vira um patch conferido e, depois que uma pessoa aprova, um PR em rascunho: aplicado num pod isolado, com o build e os testes do repositório passando antes. O merge é sempre seu. |
 | 🔭 **Observabilidade** | Opcional: Grafana com Prometheus, Loki, Tempo e Pyroscope. Heap, GC, traces lentos e profiling entram na análise. |
 
 Detalhes de cada funcionalidade em [docs/funcionalidades.md](docs/funcionalidades.md).

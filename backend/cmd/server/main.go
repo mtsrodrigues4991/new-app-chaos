@@ -13,9 +13,12 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/fix"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ghpr"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/obs"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/sandbox"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 )
 
@@ -99,7 +102,22 @@ func main() {
 		log.Printf("limite diário da IA: %d", guard.AIDailyLimit)
 	}
 
-	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, Experiments: exps, AI: reg, Code: code, Auth: au, Guard: guard}
+	// Correções automáticas: o sandbox roda no cluster, num namespace próprio, e o PR sai por um
+	// token de escrita separado do de leitura. Sem cluster, a tela explica o que falta.
+	sb := &sandbox.Kube{Client: kc, Namespace: os.Getenv("SANDBOX_NAMESPACE"), Image: os.Getenv("SANDBOX_IMAGE"), AnthropicKey: key, ReadToken: os.Getenv("GITHUB_TOKEN")}
+	if err := sb.Cleanup(context.Background()); err != nil {
+		log.Printf("aviso: limpando o sandbox das correções: %v", err)
+	}
+	fixes := &fix.Manager{Store: st, Sandbox: sb, Code: code, AppURL: os.Getenv("APP_URL"),
+		Publisher: &ghpr.Client{Token: os.Getenv("PR_GITHUB_TOKEN"), APIBase: os.Getenv("GITHUB_API_URL")}}
+	fixes.Recover(context.Background())
+	if why := fixes.Ready(); why != "" {
+		log.Printf("correções automáticas desligadas: %s", why)
+	} else {
+		log.Printf("correções automáticas: sandbox no namespace %q, imagem %q", sb.Namespace, sb.Image)
+	}
+
+	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, Experiments: exps, Fixes: fixes, AI: reg, Code: code, Auth: au, Guard: guard}
 	// Grafana pelo próprio app (/grafana), sem port-forward: só com a observabilidade ligada.
 	if g := os.Getenv("OBS_GRAFANA_PROXY"); g != "" {
 		h, err := api.GrafanaProxy(g)

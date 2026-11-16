@@ -717,6 +717,20 @@ function CodeFields({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) => 
           <input value={code.path ?? ''} placeholder="ex.: services/api" onChange={(e) => setCode({ path: e.target.value })} />
         </label>
       </div>
+      <p className="muted small">
+        Para uma correção sugerida poder virar um PR em rascunho, diga como construir e testar o repositório. O build roda num pod isolado do
+        cluster, com essa imagem e esse comando, antes de qualquer PR ser aberto. Vazio = correções automáticas desligadas neste cenário.
+      </p>
+      <div className="row">
+        <label>
+          Imagem de build (opcional)
+          <input value={code.testImage ?? ''} placeholder="ex.: maven:3.9-eclipse-temurin-17" onChange={(e) => setCode({ testImage: e.target.value })} />
+        </label>
+        <label>
+          Comando de build e testes
+          <input value={code.testCommand ?? ''} placeholder="ex.: mvn -B -q verify" onChange={(e) => setCode({ testCommand: e.target.value })} />
+        </label>
+      </div>
     </fieldset>
   );
 }

@@ -115,7 +115,8 @@ export type Scenario = {
 };
 
 // Repositório da aplicação no GitHub, lido pela IA.
-export type CodeRepo = { repo: string; branch: string; path?: string };
+// testImage e testCommand dizem como construir e testar o repositório; só as correções automáticas usam.
+export type CodeRepo = { repo: string; branch: string; path?: string; testImage?: string; testCommand?: string };
 
 export type SLO = { p95Ms: number; errorRatePct: number; availabilityPct: number };
 
@@ -230,13 +231,29 @@ export type Verdict = {
   notes?: string[];
 };
 
+// Correção sugerida. diff é o patch; applies diz se ele se aplica ao commit analisado (ausente = não conferido).
+export type ReportFix = {
+  title: string;
+  detail: string;
+  file?: string;
+  line?: number;
+  code?: string;
+  url?: string;
+  newFile?: boolean;
+  diff?: string;
+  metric?: string;
+  expected?: string;
+  applies?: boolean;
+  applyError?: string;
+};
+
 export type ReportContent = {
   summary: string;
   scoreExplanation: string;
   breakingPoint: { found: boolean; description: string };
   faultFindings: { faultId: string; finding: string }[];
   causes: string[];
-  fixes: { title: string; detail: string; file?: string; line?: number; code?: string; url?: string; newFile?: boolean }[];
+  fixes: ReportFix[];
   regression?: { verdict: 'melhorou' | 'igual' | 'piorou'; summary: string; items: string[] };
 };
 
@@ -289,6 +306,62 @@ export type Summary = {
   unmeasuredEndpoints?: number;
   droppedIterations?: number;
   warnings?: string[]; // por que a execução não serve para comparação
+};
+
+// --- correções automáticas ---
+
+export type FixStatus = 'awaiting_approval' | 'queued' | 'running' | 'pr_open' | 'rejected' | 'failed';
+export type PatchFile = { path: string; oldPath?: string; added: number; removed: number; new?: boolean; deleted?: boolean };
+export type PatchReview = { files: PatchFile[]; lines: number; violations: string[]; highlights: string[] };
+export type FixRound = {
+  n: number;
+  startedAt: string;
+  endedAt: string;
+  applied: boolean;
+  agentRan: boolean;
+  agentOutput?: string;
+  agentError?: string;
+  costUsd?: number;
+  diff: string;
+  review?: PatchReview;
+  testExit: number;
+  testLog?: string;
+  error?: string;
+};
+// Tentativa de transformar uma correção sugerida num PR em rascunho.
+export type FixAttempt = {
+  id: string;
+  runId: string;
+  scenarioId: string;
+  fixIndex: number;
+  title: string;
+  detail: string;
+  metric?: string;
+  expected?: string;
+  repo: string;
+  baseBranch: string;
+  commit: string;
+  path?: string;
+  testImage: string;
+  testCommand: string;
+  model: string;
+  proposed: string;
+  review: PatchReview;
+  status: FixStatus;
+  error?: string;
+  createdBy?: string;
+  decidedBy?: string;
+  createdAt: string;
+  decidedAt?: string;
+  endedAt?: string;
+  rounds: FixRound[];
+  finalDiff?: string;
+  costUsd: number;
+  pr?: { number: number; url: string; branch: string; commit: string };
+  highlights?: string[];
+  // Só no GET de uma tentativa: por que não pode ser aprovada agora e se quem está logado pode decidir.
+  blocked?: string;
+  canDecide?: boolean;
 };
 
 // --- experimentos A/B ---
@@ -428,6 +501,11 @@ export const api = {
   chat: (runId: string) => call<ChatMessage[]>('GET', `/api/runs/${runId}/chat`),
   ask: (runId: string, message: string) => call<ChatMessage[]>('POST', `/api/runs/${runId}/chat`, { message }),
   clearChat: (runId: string) => call<void>('DELETE', `/api/runs/${runId}/chat`),
+  fixes: (runId?: string) => call<FixAttempt[]>('GET', `/api/fixes${runId ? `?runId=${runId}` : ''}`),
+  fix: (id: string) => call<FixAttempt>('GET', `/api/fixes/${id}`),
+  createFix: (runId: string, index: number) => call<FixAttempt>('POST', `/api/runs/${runId}/fixes`, { index }),
+  approveFix: (id: string) => call<FixAttempt>('POST', `/api/fixes/${id}/approve`),
+  rejectFix: (id: string) => call<FixAttempt>('POST', `/api/fixes/${id}/reject`),
   experiments: (scenarioId?: string) => call<Experiment[]>('GET', `/api/experiments${scenarioId ? `?scenarioId=${scenarioId}` : ''}`),
   experiment: (id: string) => call<Experiment>('GET', `/api/experiments/${id}`),
   createExperiment: (s: ExperimentSpec) => call<Experiment>('POST', '/api/experiments', s),

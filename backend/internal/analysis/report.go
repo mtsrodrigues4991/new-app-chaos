@@ -3,12 +3,14 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/patch"
 )
 
 // Content é o relatório que a IA devolve (formato garantido pelo JSON Schema abaixo).
@@ -42,6 +44,15 @@ type Fix struct {
 	URL  string `json:"url,omitempty"` // link para o arquivo no GitHub, no commit analisado
 	// NewFile marca um arquivo citado que não existe no repositório (a criar).
 	NewFile bool `json:"newFile,omitempty"`
+	// Diff é a correção como patch (diff unificado, relativo à raiz da aplicação). Metric e
+	// Expected dizem o que deve melhorar e quanto: é a métrica de um experimento A/B da correção.
+	Diff     string `json:"diff,omitempty"`
+	Metric   string `json:"metric,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	// Applies diz se o patch se aplica ao commit analisado (git apply --check); nil = não
+	// conferido (sem patch, ou sem git no backend). ApplyError traz o motivo quando não aplica.
+	Applies    *bool  `json:"applies,omitempty"`
+	ApplyError string `json:"applyError,omitempty"`
 }
 
 // CodeInfo diz qual versão do código a IA leu.
@@ -88,7 +99,10 @@ func reportSchema(withRegression, withCode bool) map[string]any {
 		fix["file"] = str("Arquivo a mudar (ou a criar), relativo à raiz do repositório, exatamente como aparece na árvore e nas ferramentas; vazio se a correção não é no código")
 		fix["line"] = map[string]any{"type": "integer", "description": "Linha do ponto a mudar; 0 se não se aplica"}
 		fix["code"] = str("Trecho de código ou configuração proposto (só o trecho alterado); vazio se não se aplica")
-		fixRequired = append(fixRequired, "file", "line", "code")
+		fix["diff"] = str("A mesma correção como patch aplicável: diff unificado (linhas ---, +++ e @@), caminhos relativos à raiz do repositório com os prefixos a/ e b/, e pelo menos 3 linhas de contexto copiadas exatamente do arquivo; vazio se a correção não é uma mudança de arquivo do repositório")
+		fix["metric"] = str("A métrica que esta correção deve melhorar, uma só: p50, p95, p99, avg, error_rate ou score; se for de um endpoint, diga qual (ex.: p95 de GET /pix-keys)")
+		fix["expected"] = str("Quanto a métrica deve melhorar, com número e condição (ex.: p95 de 800 ms para menos de 300 ms com 200 req/s); é a hipótese que um experimento A/B vai conferir")
+		fixRequired = append(fixRequired, "file", "line", "code", "diff", "metric", "expected")
 	}
 	props := map[string]any{
 		"summary":          str("Resumo em 3 a 6 frases: o que foi testado, como a aplicação se comportou e o veredito."),
@@ -172,7 +186,13 @@ Regras para citar código:
 		where, s.Branch, s.Commit, pinned, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
 }
 
-const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.`
+const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.
+
+Preencha também diff com a mesma correção como patch, porque ele será conferido com git apply e pode virar um pull request:
+- Formato de diff unificado: "--- a/CAMINHO", "+++ b/CAMINHO" e blocos "@@ -linha,quantidade +linha,quantidade @@". Para arquivo novo, "--- /dev/null".
+- As linhas de contexto e as linhas removidas têm que ser cópias exatas do arquivo que você abriu com read_file, com a mesma indentação. O número e a barra que o read_file mostra antes de cada linha não fazem parte do arquivo: não copie.
+- Uma correção por patch, com o mínimo de linhas. Não inclua mudanças de formatação.
+- Em metric e expected, diga a métrica que deve melhorar e quanto: é o que um experimento A/B vai medir depois.`
 
 const codeChatTask = `Para perguntas sobre o código, use as ferramentas. Ao citar um arquivo, use um link markdown no formato [caminho:linha](link do GitHub).`
 
@@ -278,6 +298,7 @@ func Analyze(ctx context.Context, p ai.Provider, model string, in Input) (Report
 		rep.Code = &CodeInfo{Snapshot: in.Code.Snap, FilesRead: append([]string{}, in.Code.Read...)}
 		for i := range rep.Content.Fixes {
 			checkFix(in.Code, &rep.Content.Fixes[i])
+			checkPatch(ctx, in.Code, &rep.Content.Fixes[i])
 		}
 	}
 	return rep, nil
@@ -305,4 +326,30 @@ func Chat(ctx context.Context, p ai.Provider, model string, in Input, history []
 		return "", resp, err
 	}
 	return strings.TrimSpace(resp.Text), resp, nil
+}
+
+// checkPatch confere se o patch de uma correção se aplica ao commit analisado. A sugestão vira
+// "aplica" ou "não aplica" antes de alguém gastar tempo com ela.
+func checkPatch(ctx context.Context, b *coderepo.Browser, f *Fix) {
+	f.Applies, f.ApplyError = nil, ""
+	f.Diff = strings.TrimSpace(f.Diff)
+	if f.Diff == "" {
+		return
+	}
+	f.Diff += "\n"
+	no := false
+	if _, err := patch.Parse(f.Diff); err != nil {
+		f.Applies, f.ApplyError = &no, err.Error()
+		return
+	}
+	err := patch.Check(ctx, b.Snap.Root, f.Diff)
+	switch {
+	case errors.Is(err, patch.ErrNoGit):
+		f.ApplyError = err.Error() // não conferido: Applies fica nil
+	case err != nil:
+		f.Applies, f.ApplyError = &no, err.Error()
+	default:
+		yes := true
+		f.Applies = &yes
+	}
 }

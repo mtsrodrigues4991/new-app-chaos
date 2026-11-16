@@ -128,19 +128,23 @@ fi
 step "Imagens do new-app-chaos"
 build new-app-chaos-backend:dev backend
 build new-app-chaos-frontend:dev frontend
+# Sandbox das correções automáticas (git + Claude Code); na primeira vez baixa o Node (~250 MB).
+build new-app-chaos-agent:dev deploy/sandbox
 docker image inspect "$K6_IMAGE" >/dev/null 2>&1 || docker pull -q "$K6_IMAGE" >/dev/null
-load new-app-chaos-backend:dev new-app-chaos-frontend:dev "$K6_IMAGE"
+load new-app-chaos-backend:dev new-app-chaos-frontend:dev new-app-chaos-agent:dev "$K6_IMAGE"
 
 step "Instalando o new-app-chaos no namespace $NS"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-# Só as duas chaves saem do .env, por arquivo (nunca na linha de comando).
+# Só estas chaves saem do .env, por arquivo (nunca na linha de comando). PR_GITHUB_TOKEN é o
+# token de escrita das correções automáticas (contents:write e pull_requests:write no repositório alvo).
 secret_env="$(mktemp)"; chmod 600 "$secret_env"
 trap 'rm -f "$secret_env"' EXIT
-if [[ -f .env ]]; then grep -E '^(ANTHROPIC_API_KEY|GITHUB_TOKEN)=.' .env > "$secret_env" || true; fi
+if [[ -f .env ]]; then grep -E '^(ANTHROPIC_API_KEY|GITHUB_TOKEN|PR_GITHUB_TOKEN)=.' .env > "$secret_env" || true; fi
 kubectl -n "$NS" create secret generic new-app-chaos-secrets --from-env-file="$secret_env" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 [[ -s "$secret_env" ]] || echo "aviso: sem ANTHROPIC_API_KEY no .env; a análise por IA fica desativada até preencher e rodar de novo."
 helm upgrade --install new-app-chaos deploy/charts/new-app-chaos -n "$NS" \
-  --set buildId="$BUILD_ID" --set backend.k6Image="$K6_IMAGE" --set observability.enabled="$OBS_ON" --wait --timeout 5m >/dev/null
+  --set buildId="$BUILD_ID" --set backend.k6Image="$K6_IMAGE" --set observability.enabled="$OBS_ON" \
+  --set sandbox.enabled=true --set appUrl="http://localhost:$UI_PORT" --wait --timeout 5m >/dev/null
 
 # --- alvos ---
 target() { # target <release> <namespace> [args do helm...]

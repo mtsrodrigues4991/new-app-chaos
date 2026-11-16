@@ -19,6 +19,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/fix"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -34,8 +35,10 @@ type Server struct {
 	Runner *runner.Manager
 	// Experiments roda os experimentos A/B (a fila de execuções intercaladas).
 	Experiments *experiment.Manager
-	AI          *ai.Registry
-	Code        *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
+	// Fixes leva uma correção sugerida até um PR em rascunho (nil = indisponível).
+	Fixes *fix.Manager
+	AI    *ai.Registry
+	Code  *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
 	// Grafana repassa /grafana/ para o Grafana do cluster (nil = sem proxy).
 	Grafana http.Handler
 	// Auth é o login do modo nuvem (nil ou desligado = tudo aberto, como no modo local).
@@ -87,6 +90,12 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/runs/{id}/chat", s.getChat)
 	r.Post("/api/runs/{id}/chat", s.postChat)
 	r.Delete("/api/runs/{id}/chat", s.clearChat)
+
+	r.Post("/api/runs/{id}/fixes", s.createFix)
+	r.Get("/api/fixes", s.listFixes)
+	r.Get("/api/fixes/{id}", s.getFix)
+	r.Post("/api/fixes/{id}/approve", s.decideFix(true))
+	r.Post("/api/fixes/{id}/reject", s.decideFix(false))
 
 	r.Get("/api/experiments", s.listExperiments)
 	r.Post("/api/experiments", s.createExperiment)
@@ -153,6 +162,11 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 				sc.Code.Branch = "main"
 			}
 			sc.Code.Path = strings.Trim(strings.TrimSpace(sc.Code.Path), "/")
+			sc.Code.TestImage = strings.TrimSpace(sc.Code.TestImage)
+			sc.Code.TestCommand = strings.TrimSpace(sc.Code.TestCommand)
+			if (sc.Code.TestImage == "") != (sc.Code.TestCommand == "") || strings.ContainsAny(sc.Code.TestImage, " \t\n") {
+				return sc, errors.New("para conferir correções, informe a imagem de build (sem espaços) e o comando de teste; ou deixe os dois vazios")
+			}
 		}
 	}
 	return sc, sc.Validate()

@@ -88,6 +88,20 @@ spec:
             - { name: OBS_GRAFANA_URL, value: {{ .Values.observability.grafanaUrl | quote }} }
             - { name: OBS_GRAFANA_PROXY, value: {{ .Values.observability.grafanaProxyUrl | quote }} }
             {{- end }}
+            {{- if .Values.sandbox.enabled }}
+            - { name: SANDBOX_NAMESPACE, value: {{ .Values.sandbox.namespace | default (printf "%s-sandbox" .Release.Namespace) | quote }} }
+            - { name: SANDBOX_IMAGE, value: {{ .Values.sandbox.image | quote }} }
+            # Token de escrita, só para abrir o PR em rascunho; separado do GITHUB_TOKEN de leitura.
+            - name: PR_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: PR_GITHUB_TOKEN
+                  optional: true
+            {{- end }}
+            {{- with .Values.appUrl }}
+            - { name: APP_URL, value: {{ . | quote }} }
+            {{- end }}
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:

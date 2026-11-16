@@ -50,6 +50,18 @@ observability:
 rbac:
   targetNamespaces: []
 
+# Correções automáticas (Fase 2 da docs/analise-evolucao.md): com enabled, o chart cria o namespace
+# do sandbox, e uma correção sugerida pela IA e aprovada por uma pessoa pode virar um PR em
+# rascunho. Precisa da ANTHROPIC_API_KEY e do PR_GITHUB_TOKEN no secretName, e de um cluster que
+# aplique NetworkPolicy (ver templates/sandbox.yaml).
+sandbox:
+  enabled: false
+  namespace: ""   # vazio = <namespace do app>-sandbox
+  image: new-app-chaos-agent:dev   # deploy/sandbox
+
+# Endereço público do app, para o PR apontar para a execução que o motivou (vazio = sem link).
+appUrl: ""
+
 # Secret com ANTHROPIC_API_KEY e GITHUB_TOKEN (opcionais). O scripts/kind-up.sh cria a
 # partir do .env; o chart só referencia, para a chave nunca passar pelo values.
 secretName: new-app-chaos-secrets
