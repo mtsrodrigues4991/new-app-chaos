@@ -1,5 +1,18 @@
-# O backend lê Deployments, Services e pods de todos os namespaces (alvos), lê métricas,
-# cria os Jobs do k6 no próprio namespace e cria/apaga recursos do Chaos Mesh nos alvos.
+# O backend lê Deployments, Services e pods de todos os namespaces (para listar alvos), lê
+# métricas, cria os Jobs do k6 no próprio namespace e cria/apaga recursos do Chaos Mesh nos alvos.
+#
+# Onde ele pode criar falhas depende de rbac.targetNamespaces:
+#   - vazio: em qualquer namespace (ClusterRole). A trava que resta é a do backend
+#     (namespaces de sistema negados e ALLOWED_TARGET_NAMESPACES).
+#   - com lista: só nesses namespaces (Role + RoleBinding em cada um); o ClusterRole fica só
+#     de leitura. Um cenário mirando outro namespace é recusado pelo próprio Kubernetes.
+{{- define "nac.chaosRules" -}}
+- apiGroups: ["chaos-mesh.org"]
+  resources: ["networkchaos", "stresschaos", "podchaos", "iochaos", "dnschaos", "httpchaos"]
+  # patch/update: tirar o finalizer de um recurso que nunca chegou a injetar e ficou preso
+  # (o webhook do Chaos Mesh, com securityMode, confere o verbo "update" numa edição).
+  verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -16,19 +29,23 @@ rules:
     resources: ["deployments"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["services", "events"]
+    resources: ["services", "events", "pods"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "watch", "delete"]
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]
     verbs: ["get", "list"]
+  {{- if not .Values.rbac.targetNamespaces }}
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  # O recurso list do Chaos Mesh em todos os namespaces também serve à limpeza na subida.
+  {{- include "nac.chaosRules" . | nindent 2 }}
+  {{- else }}
+  # Só para a limpeza na subida do backend, que procura falhas esquecidas no cluster inteiro.
   - apiGroups: ["chaos-mesh.org"]
     resources: ["networkchaos", "stresschaos", "podchaos", "iochaos", "dnschaos", "httpchaos"]
-    # patch/update: tirar o finalizer de um recurso que nunca chegou a injetar e ficou preso
-    # (o webhook do Chaos Mesh, com securityMode, confere o verbo "update" numa edição).
-    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -43,8 +60,39 @@ subjects:
   - kind: ServiceAccount
     name: new-app-chaos
     namespace: {{ .Release.Namespace }}
+{{- range .Values.rbac.targetNamespaces }}
 ---
-# Jobs do k6 só no namespace do app.
+# Falhas e logs só neste namespace de alvos.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Namespace }}-new-app-chaos-target
+  namespace: {{ . }}
+  labels: {{- include "nac.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  {{- include "nac.chaosRules" $ | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Namespace }}-new-app-chaos-target
+  namespace: {{ . }}
+  labels: {{- include "nac.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $.Release.Namespace }}-new-app-chaos-target
+subjects:
+  - kind: ServiceAccount
+    name: new-app-chaos
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+---
+# Só no namespace do app: os Jobs do k6, e apagar e ler o log dos pods do k6. O backend não
+# apaga pods em nenhum outro lugar (o kill dos alvos é feito pelo Chaos Mesh).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -54,6 +102,12 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -75,6 +75,9 @@ spec:
             {{- with .Values.guard.allowedTargetHosts }}
             - { name: ALLOWED_TARGET_HOSTS, value: {{ . | quote }} }
             {{- end }}
+            {{- with .Values.guard.allowedTargetNamespaces }}
+            - { name: ALLOWED_TARGET_NAMESPACES, value: {{ . | quote }} }
+            {{- end }}
             {{- if .Values.guard.aiDailyLimit }}
             - { name: AI_DAILY_LIMIT, value: {{ .Values.guard.aiDailyLimit | quote }} }
             {{- end }}

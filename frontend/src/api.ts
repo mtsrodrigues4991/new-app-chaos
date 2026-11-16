@@ -58,7 +58,18 @@ export type Endpoint = {
 
 export type ProfileType = 'ramp' | 'plateau' | 'spike';
 
-export type Profile = { type: ProfileType; vus: number; durationSeconds: number };
+// Com rate > 0 a carga é por taxa de chegada (modelo aberto): o perfil é em requisições por
+// segundo e vus são os VUs pré-alocados. Sem rate, o perfil é em VUs (modelo fechado).
+export type Profile = { type: ProfileType; vus: number; durationSeconds: number; rate?: number; warmupSeconds?: number };
+
+export function openModel(p: Profile): boolean {
+  return (p.rate ?? 0) > 0;
+}
+
+// Carga no pico, para mostrar: "200 req/s" ou "20 VUs".
+export function profilePeak(p: Profile): string {
+  return openModel(p) ? `${p.rate} req/s` : `${p.vus} VUs`;
+}
 
 export type Mode = 'load' | 'chaos' | 'both';
 
@@ -234,7 +245,8 @@ export type Report = {
   provider: string;
   usage: { model: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; toolCalls?: number };
   referenceRunId?: string;
-  code?: { repo: string; branch: string; path?: string; commit: string; filesRead: string[] };
+  // pinned: o commit é o que estava implantado no teste (senão, o topo do branch na hora da análise).
+  code?: { repo: string; branch: string; path?: string; commit: string; pinned?: boolean; filesRead: string[] };
   score: number;
   createdAt: string;
 };
@@ -247,7 +259,41 @@ export type AIProvider = { id: string; label: string; keyEnv: string; configured
 
 export type AISettings = { provider: string; model: string; providers?: AIProvider[]; githubTokenConfigured?: boolean };
 
+// Versão de um componente testado (o alvo ou uma dependência) no início da execução.
+export type ImageRef = { container?: string; image: string; id?: string; pods?: number };
+export type Version = { role: 'target' | 'dependency'; name: string; commit?: string; images: ImageRef[]; mixed?: boolean };
+
+// Números de um trecho da execução, calculados pelo k6 sobre todas as requisições do trecho.
+export type Segment = {
+  seconds: number;
+  requests: number;
+  rps: number;
+  errorRatePct: number;
+  avgMs: number;
+  p50Ms: number;
+  p90Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  maxMs: number;
+};
+export type EndpointSummary = Segment & { method: string; path: string };
+
+// Resumo da execução inteira: overall inclui o aquecimento; steady e endpoints, não.
+export type Summary = {
+  openModel: boolean;
+  targetRate?: number;
+  overall: Segment;
+  warmupSeconds: number;
+  steady: Segment;
+  endpoints: EndpointSummary[];
+  unmeasuredEndpoints?: number;
+  droppedIterations?: number;
+  warnings?: string[]; // por que a execução não serve para comparação
+};
+
 export type RunDetail = Run & {
+  versions?: Version[];
+  summary?: Summary;
   windows: Window[];
   faultEvents: FaultEvent[];
   verdict?: Verdict;
@@ -321,7 +367,7 @@ export const api = {
 // Mesma conversão de perfil em stages do backend (internal/scenario), para a prévia no editor.
 export function profileStages(p: Profile): { durationSeconds: number; target: number }[] {
   const d = p.durationSeconds;
-  const n = p.vus;
+  const n = openModel(p) ? p.rate! : p.vus;
   const part = (f: number) => Math.max(1, Math.floor(d * f));
   switch (p.type) {
     case 'ramp':

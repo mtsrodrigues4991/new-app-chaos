@@ -22,9 +22,15 @@ spec:
     metadata:
       labels:
         app: {{ $name }}
-      {{- with .Values.buildId }}
+      {{- if or .Values.buildId .Values.revision }}
       annotations:
+        {{- with .Values.buildId }}
         new-app-chaos/build: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.revision }}
+        # Commit do código da imagem: o new-app-chaos registra em cada execução e a IA lê esse commit.
+        org.opencontainers.image.revision: {{ . | quote }}
+        {{- end }}
       {{- end }}
     spec:
       containers:

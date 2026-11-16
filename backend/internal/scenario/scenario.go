@@ -68,16 +68,44 @@ const (
 )
 
 // Profile é o perfil de carga escolhido no formulário.
+//
+// Há dois modelos de carga. No fechado (padrão), o perfil é em usuários virtuais: cada VU
+// espera a resposta antes do próximo pedido, então a vazão cai quando a API fica lenta. No
+// aberto (Rate > 0), o perfil é em requisições por segundo: o k6 dispara na taxa pedida,
+// responda a API rápido ou devagar. Só o aberto entrega a mesma carga a duas versões da
+// aplicação, e por isso é o que serve para comparar antes e depois.
 type Profile struct {
-	Type            ProfileType `json:"type"`
-	VUs             int         `json:"vus"`             // usuários virtuais no pico
-	DurationSeconds int         `json:"durationSeconds"` // duração total
+	Type ProfileType `json:"type"`
+	// VUs são os usuários virtuais no pico (modelo fechado) ou os VUs pré-alocados (modelo
+	// aberto: o teto de requisições simultâneas; se faltar, o k6 descarta iterações).
+	VUs             int `json:"vus"`
+	DurationSeconds int `json:"durationSeconds"` // duração total
+	// Rate é a taxa de chegada no pico, em requisições por segundo. Zero = modelo fechado.
+	Rate int `json:"rate,omitempty"`
+	// WarmupSeconds é o aquecimento: as requisições iniciadas antes disso ficam fora da janela
+	// estável do resumo da execução (JIT, pools e caches ainda enchendo).
+	WarmupSeconds int `json:"warmupSeconds,omitempty"`
+}
+
+// MaxRate é a maior taxa de chegada aceita, em requisições por segundo.
+const MaxRate = 20000
+
+// OpenModel diz se a carga é por taxa de chegada (modelo aberto).
+func (p Profile) OpenModel() bool { return p.Rate > 0 }
+
+// Peak é o alvo do perfil no pico: requisições por segundo no modelo aberto, VUs no fechado.
+func (p Profile) Peak() int {
+	if p.OpenModel() {
+		return p.Rate
+	}
+	return p.VUs
 }
 
 // Stage é um trecho do perfil de carga (equivale a um stage do k6).
 type Stage struct {
 	DurationSeconds int `json:"durationSeconds"`
-	Target          int `json:"target"` // usuários virtuais ao fim do trecho
+	// Target é o valor ao fim do trecho: VUs no modelo fechado, requisições por segundo no aberto.
+	Target int `json:"target"`
 }
 
 // FaultType são as falhas suportadas no MVP.
@@ -261,6 +289,12 @@ func (s Scenario) Validate() error {
 		if s.Profile.VUs < 1 || s.Profile.VUs > 5000 {
 			errs = append(errs, "VUs deve estar entre 1 e 5000")
 		}
+		if s.Profile.Rate < 0 || s.Profile.Rate > MaxRate {
+			errs = append(errs, fmt.Sprintf("taxa de chegada deve estar entre 1 e %d requisições por segundo", MaxRate))
+		}
+		if s.Profile.WarmupSeconds < 0 || (s.Profile.WarmupSeconds > 0 && s.Profile.WarmupSeconds >= s.Profile.DurationSeconds) {
+			errs = append(errs, "aquecimento deve ser menor que a duração")
+		}
 		if _, err := s.Profile.Stages(); err != nil {
 			errs = append(errs, err.Error())
 		}
@@ -322,7 +356,7 @@ func (s Scenario) Validate() error {
 
 // Stages converte o perfil pronto em stages do k6. A soma das durações é igual à duração total.
 func (p Profile) Stages() ([]Stage, error) {
-	d, n := p.DurationSeconds, p.VUs
+	d, n := p.DurationSeconds, p.Peak()
 	part := func(f float64) int {
 		v := int(float64(d) * f)
 		if v < 1 {

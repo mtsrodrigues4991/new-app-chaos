@@ -180,3 +180,50 @@ func TestValidateDependencyAndKubernetesOnly(t *testing.T) {
 		}
 	}
 }
+
+// No modelo aberto os trechos do perfil são em requisições por segundo, e os VUs deixam de
+// definir a carga: viram só o teto de requisições simultâneas.
+func TestStagesUseRateInOpenModel(t *testing.T) {
+	for _, typ := range []ProfileType{ProfileRamp, ProfilePlateau, ProfileSpike} {
+		p := Profile{Type: typ, VUs: 50, Rate: 300, DurationSeconds: 60}
+		st, err := p.Stages()
+		if err != nil {
+			t.Fatal(err)
+		}
+		total, peak := 0, 0
+		for _, s := range st {
+			total += s.DurationSeconds
+			peak = max(peak, s.Target)
+		}
+		if total != 60 || peak != 300 {
+			t.Errorf("%s: duração %d e pico %d, esperado 60 e 300 req/s", typ, total, peak)
+		}
+	}
+	if (Profile{VUs: 50}).OpenModel() || (Profile{VUs: 50}).Peak() != 50 {
+		t.Error("sem taxa o perfil continua em VUs (cenários antigos)")
+	}
+}
+
+func TestValidateRateAndWarmup(t *testing.T) {
+	base := Scenario{
+		Name:      "teste",
+		Target:    Target{Container: "demo-api", BaseURL: "http://demo-api:8080"},
+		Endpoints: []Endpoint{{Method: "GET", Path: "/items", Weight: 1}},
+		Profile:   Profile{Type: ProfilePlateau, VUs: 50, Rate: 200, DurationSeconds: 60, WarmupSeconds: 15},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("esperava válido: %v", err)
+	}
+	for name, change := range map[string]func(*Scenario){
+		"taxa de chegada": func(s *Scenario) { s.Profile.Rate = MaxRate + 1 },
+		"taxa negativa":   func(s *Scenario) { s.Profile.Rate = -1 },
+		"aquecimento":     func(s *Scenario) { s.Profile.WarmupSeconds = 60 },
+		"VUs":             func(s *Scenario) { s.Profile.VUs = 0 }, // no modelo aberto ainda precisa de VUs pré-alocados
+	} {
+		sc := base
+		change(&sc)
+		if err := sc.Validate(); err == nil {
+			t.Errorf("%s: esperava erro de validação", name)
+		}
+	}
+}

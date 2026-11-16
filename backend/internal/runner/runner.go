@@ -148,6 +148,12 @@ func (m *Manager) Start(ctx context.Context, sc scenario.Scenario) (store.Run, e
 		m.finish(run.ID)
 		return store.Run{}, err
 	}
+	// Qual versão está sendo testada: lida agora, antes de qualquer falha derrubar pods.
+	if vs := versionsOf(ctx, target, sc); len(vs) > 0 {
+		if err := m.Store.SaveVersions(ctx, run.ID, vs); err != nil {
+			log.Printf("run %s: salvando as versões: %v", run.ID, err)
+		}
+	}
 	go m.execute(run, target, a)
 	return run, nil
 }
@@ -416,8 +422,9 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 	// --- espera o fim ---
 	var exitRes *k6Exit
 	var streamErr error
+	var totals *load.Totals
 	if sc.HasLoad() {
-		exitRes, streamErr = m.waitK6(ctx, runCtx, run, k6, agg, &aggMu, exited)
+		exitRes, totals, streamErr = m.waitK6(ctx, runCtx, run, k6, agg, &aggMu, exited)
 	} else {
 		select {
 		case <-time.After(time.Duration(sc.Profile.DurationSeconds) * time.Second):
@@ -433,6 +440,13 @@ func (m *Manager) execute(run store.Run, target Target, a *active) {
 	rest := agg.Flush(load.MaxSecond)
 	aggMu.Unlock()
 	emit(rest)
+	// Resumo da execução inteira (percentis do k6 sobre todas as requisições). Numa execução
+	// abortada ele cobre só o que rodou; o status da execução diz isso.
+	if totals != nil {
+		if err := m.Store.SaveSummary(ctx, run.ID, totals.Summary(sc)); err != nil {
+			log.Printf("run %s: salvando o resumo: %v", run.ID, err)
+		}
+	}
 
 	if collector != nil {
 		dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -503,12 +517,17 @@ type k6Exit struct {
 
 // waitK6 lê o dashboard até o k6 anunciar o fim e espera o container sair.
 // Se o k6 sair sem anunciar, ou passar muito do previsto, corta.
-func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6 K6, agg *load.Aggregator, aggMu *sync.Mutex, exited chan k6Exit) (*k6Exit, error) {
+func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6 K6, agg *load.Aggregator, aggMu *sync.Mutex, exited chan k6Exit) (*k6Exit, *load.Totals, error) {
 	streamCtx, stopStream := context.WithCancel(runCtx)
 	defer stopStream()
 	var exitRes *k6Exit
 	streamDone := make(chan error, 1)
-	go func() { streamDone <- m.streamDashboard(streamCtx, k6, agg, aggMu) }()
+	var totals *load.Totals // escrito pela goroutine abaixo; lido só depois de streamDone
+	go func() {
+		var err error
+		totals, err = m.streamDashboard(streamCtx, k6, agg, aggMu)
+		streamDone <- err
+	}()
 	watchdog := time.NewTimer(time.Duration(run.Scenario.Profile.DurationSeconds)*time.Second + 2*time.Minute)
 	defer watchdog.Stop()
 	var streamErr error
@@ -542,7 +561,7 @@ func (m *Manager) waitK6(ctx, runCtx context.Context, run store.Run, k6 K6, agg 
 			exitRes = &e
 		}
 	}
-	return exitRes, streamErr
+	return exitRes, totals, streamErr
 }
 
 // runFaults aplica e reverte as falhas na hora marcada, uma por vez. Quando ctx acaba
@@ -624,43 +643,49 @@ func (m *Manager) runFaults(ctx context.Context, runID string, a *active, target
 
 const dashboardPort = 5665
 
-// streamDashboard espera o dashboard do k6 subir e lê os resumos até o fim do teste.
-func (m *Manager) streamDashboard(ctx context.Context, k6 K6, agg *load.Aggregator, mu *sync.Mutex) error {
+// streamDashboard espera o dashboard do k6 subir e lê os resumos até o fim do teste. Devolve
+// o último acumulado recebido (nil se o k6 não chegou a publicar nenhum).
+func (m *Manager) streamDashboard(ctx context.Context, k6 K6, agg *load.Aggregator, mu *sync.Mutex) (*load.Totals, error) {
 	var url string
+	var totals *load.Totals
 	// No Kubernetes o pod pode levar mais para subir (agendamento e download da imagem).
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
 		u, err := k6.DashboardURL(ctx)
 		if err != nil {
-			return err
+			return totals, err
 		}
 		if u != "" {
 			url = u
-			err = load.StreamDashboard(ctx, url, agg.Start(), func(s *load.Snapshot) {
+			var got *load.Totals
+			got, err = load.StreamDashboard(ctx, url, agg.Start(), func(s *load.Snapshot) {
 				mu.Lock()
 				agg.AddSnapshot(s)
 				mu.Unlock()
 			})
+			if got != nil { // uma reconexão sem acumulado não apaga o que já chegou
+				totals = got
+			}
 			if err == nil || ctx.Err() != nil {
-				return nil
+				return totals, nil
 			}
 			var opErr *net.OpError
 			if !errors.As(err, &opErr) { // erro de formato, não de conexão: não adianta tentar de novo
-				return err
+				return totals, err
 			}
 		}
 		if ctx.Err() != nil {
-			return nil
+			return totals, nil
 		}
 		if time.Now().After(deadline) {
 			if url == "" {
-				return errors.New("o k6 não ficou pronto em 3 minutos (no Kubernetes: kubectl get pods -l new-app-chaos/role=k6)")
+				return totals, errors.New("o k6 não ficou pronto em 3 minutos (no Kubernetes: kubectl get pods -l new-app-chaos/role=k6)")
 			}
-			return fmt.Errorf("dashboard do k6 não respondeu em %s: %v", url, err)
+			return totals, fmt.Errorf("dashboard do k6 não respondeu em %s: %v", url, err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil
+			return totals, nil
 		case <-time.After(300 * time.Millisecond):
 		}
 	}

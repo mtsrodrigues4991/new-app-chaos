@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, grafanaExploreUrl, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, Run, RunDetail, RunStatus, targetName, targetPlatform, Verdict, Window } from '../api';
+import { api, grafanaExploreUrl, Fault, FaultEvent, FaultResult, FaultState, Grade, LiveEvent, profilePeak, Run, RunDetail, RunStatus, Segment, targetName, targetPlatform, Verdict, Window } from '../api';
 import AIPanel from '../components/AIPanel';
 import { faultMeta, faultSummary } from '../faults';
 import { modeLabel, profileLabel } from './ScenarioEditor';
@@ -181,7 +181,7 @@ export default function RunView({ id }: { id: string }) {
       : undefined;
   const facts = [
     modeLabel[mode],
-    mode === 'chaos' ? `sonda ${run.scenario.probePath}` : `${profileLabel[p.type]}, ${p.vus} VUs`,
+    mode === 'chaos' ? `sonda ${run.scenario.probePath}` : `${profileLabel[p.type]}, ${profilePeak(p)}`,
     `${p.durationSeconds} s planejados`,
     `iniciada em ${new Date(run.createdAt).toLocaleString('pt-BR')}`,
     `duração ${duration(run)}`,
@@ -259,6 +259,7 @@ export default function RunView({ id }: { id: string }) {
       <Panel id="resumo" current={current}>
         {run.verdict && <VerdictPanel run={run} onReference={(referenceRunId) => setRun({ ...run, referenceRunId })} onAI={() => setTab('ia')} />}
         {bs.length > 0 && <FaultList bands={bs} verdict={run.verdict} />}
+        {finished && <Measurement run={run} />}
         {!run.verdict && bs.length === 0 && <p className="muted">{finished ? 'Esta execução não tem veredito nem falhas.' : 'O veredito aparece quando a execução terminar.'}</p>}
       </Panel>
       <Panel id="graficos" current={current}>
@@ -820,6 +821,96 @@ function Charts({ windows, bands, chaosOnly, duration, k8s }: { windows: Window[
         </LineChart>
       </ChartCard>
       {resources}
+    </div>
+  );
+}
+
+// Medição da execução: qual versão rodou e os números da execução inteira, da janela estável
+// e de cada endpoint (percentis do k6 sobre todas as requisições, não por segundo).
+function Measurement({ run }: { run: RunDetail }) {
+  const s = run.summary;
+  const versions = run.versions ?? [];
+  if (!s && versions.length === 0) return null;
+  const row = (label: ReactNode, g: Segment, key: string) => (
+    <tr key={key}>
+      <td>{label}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.requests)}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.rps, 1)}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.errorRatePct, 2)}%</td>
+      <td style={{ textAlign: 'right' }}>{n(g.p50Ms, 2)}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.p95Ms, 2)}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.p99Ms, 2)}</td>
+      <td style={{ textAlign: 'right' }}>{n(g.maxMs, 1)}</td>
+    </tr>
+  );
+  return (
+    <div className="card table-card">
+      <div className="card-head" style={{ padding: '16px 20px 0' }}>
+        <h2>Medição</h2>
+        {s && <span className="muted small">{s.openModel ? `taxa de chegada, ${s.targetRate} req/s no pico` : 'usuários virtuais (modelo fechado)'}</span>}
+      </div>
+      <div style={{ padding: '8px 20px 16px' }}>
+        {versions.length === 0 ? (
+          <p className="muted small">Versão testada não registrada (execução anterior ao registro, ou a leitura falhou).</p>
+        ) : (
+          <ul className="small" style={{ margin: '8px 0', paddingLeft: 18 }}>
+            {versions.map((v) => (
+              <li key={v.role + v.name}>
+                {v.role === 'target' ? 'Alvo' : 'Dependência'} <strong>{v.name}</strong>: commit{' '}
+                {v.commit ? <code>{v.commit.slice(0, 12)}</code> : <span className="muted">não declarado pela imagem</span>}
+                {v.mixed && <strong> · pods com versões diferentes durante o teste</strong>}
+                {v.images.map((im, i) => (
+                  <div key={i} className="muted mono" style={{ overflowWrap: 'anywhere' }}>
+                    {im.container ? `${im.container}: ` : ''}
+                    {im.image}
+                    {im.id ? ` (${im.id})` : ''}
+                    {im.pods ? ` · ${im.pods} pod${im.pods === 1 ? '' : 's'}` : ''}
+                  </div>
+                ))}
+              </li>
+            ))}
+          </ul>
+        )}
+        {s?.warnings?.map((w, i) => (
+          <p key={i} className="notice" style={{ margin: '8px 0' }}>
+            Não use esta execução para comparar: {w}
+          </p>
+        ))}
+      </div>
+      {s && (
+        <table>
+          <thead>
+            <tr>
+              <th>Trecho</th>
+              <th style={{ textAlign: 'right' }}>Requisições</th>
+              <th style={{ textAlign: 'right' }}>Por segundo</th>
+              <th style={{ textAlign: 'right' }}>Erro</th>
+              <th style={{ textAlign: 'right' }}>p50 (ms)</th>
+              <th style={{ textAlign: 'right' }}>p95 (ms)</th>
+              <th style={{ textAlign: 'right' }}>p99 (ms)</th>
+              <th style={{ textAlign: 'right' }}>Máx (ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {row('Execução inteira', s.overall, 'overall')}
+            {row(s.warmupSeconds > 0 ? `Janela estável (depois de ${s.warmupSeconds} s)` : 'Janela estável (sem aquecimento)', s.steady, 'steady')}
+            {s.endpoints.map((e, i) =>
+              row(
+                <span className="mono">
+                  {e.method} {e.path}
+                </span>,
+                e,
+                `ep${i}`,
+              ),
+            )}
+          </tbody>
+        </table>
+      )}
+      {s && (s.unmeasuredEndpoints ?? 0) > 0 && (
+        <p className="muted small" style={{ padding: '8px 20px' }}>
+          Mais {s.unmeasuredEndpoints} endpoint(s) entram só nos totais (o limite é de 20 com números próprios).
+        </p>
+      )}
     </div>
   );
 }

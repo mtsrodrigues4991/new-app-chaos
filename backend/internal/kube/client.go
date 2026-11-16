@@ -195,6 +195,7 @@ type Meta struct {
 	Name              string            `json:"name"`
 	Namespace         string            `json:"namespace,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
+	Annotations       map[string]string `json:"annotations,omitempty"`
 	CreationTimestamp time.Time         `json:"creationTimestamp,omitempty"`
 	DeletionTimestamp *time.Time        `json:"deletionTimestamp,omitempty"`
 }
@@ -243,7 +244,11 @@ type Service struct {
 type Pod struct {
 	Metadata Meta `json:"metadata"`
 	Spec     struct {
-		NodeName string `json:"nodeName"`
+		NodeName   string `json:"nodeName"`
+		Containers []struct {
+			Name  string `json:"name"`
+			Image string `json:"image"`
+		} `json:"containers"`
 	} `json:"spec"`
 	Status struct {
 		Phase             string `json:"phase"`
@@ -251,7 +256,10 @@ type Pod struct {
 		Reason            string `json:"reason"`
 		Message           string `json:"message"`
 		ContainerStatuses []struct {
-			Name         string `json:"name"`
+			Name  string `json:"name"`
+			Image string `json:"image"`
+			// ImageID identifica o conteúdo em uso: nome@sha256:... (registry) ou sha256:... (imagem local).
+			ImageID      string `json:"imageID"`
 			Ready        bool   `json:"ready"`
 			RestartCount int    `json:"restartCount"`
 			State        struct {

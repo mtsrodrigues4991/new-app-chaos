@@ -88,7 +88,8 @@ export default function AIPanel({ run, onReport }: { run: RunDetail; onReport: (
                 <a href={`https://github.com/${rep.code.repo}/tree/${rep.code.commit}${rep.code.path ? `/${rep.code.path}` : ''}`} target="_blank" rel="noreferrer">
                   {rep.code.repo}
                 </a>{' '}
-                ({rep.code.branch} @ <code>{rep.code.commit.slice(0, 7)}</code>)
+                ({rep.code.branch} @ <code>{rep.code.commit.slice(0, 7)}</code>,{' '}
+                {rep.code.pinned ? 'o commit que rodou no teste' : 'topo do branch na hora da análise; pode não ser o código que rodou'})
               </summary>
               <ul>
                 {rep.code.filesRead.map((f, i) => (

@@ -17,6 +17,8 @@ cd "$ROOT"
 NS=new-app-chaos
 ADMIN_USER="${ADMIN_USER:-mateus}"
 TARGETS="${TARGETS:-demo-api pix svc-pedido svc-pagamento svc-catalogo}"
+# Namespaces onde os alvos são instalados: os únicos em que o backend pode injetar falhas.
+TARGET_NAMESPACES="demo pix dorigao"
 OBS="${OBS:-1}"; OBS_ON=false; [[ "$OBS" != 0 && -n "$OBS" ]] && OBS_ON=true
 CHAOS_MESH_VERSION="${CHAOS_MESH_VERSION:-2.8.8}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
@@ -91,6 +93,9 @@ fi
 
 step "new-app-chaos (namespace $NS)"
 ns "$NS"
+# Os namespaces dos alvos existem antes do app: o chart cria neles o Role que deixa o backend
+# injetar falhas (rbac.targetNamespaces). Fora deles o backend só lê.
+for n in $TARGET_NAMESPACES; do ns "$n"; done
 secret_env="$(mktemp)"; chmod 600 "$secret_env"; trap 'rm -f "$secret_env"' EXIT
 {
   printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
@@ -119,6 +124,8 @@ helm upgrade --install new-app-chaos deploy/charts/new-app-chaos -n "$NS" \
   --set ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt \
   --set auth.enabled=true --set auth.adminUser="$ADMIN_USER" \
   --set guard.allowedTargetHosts='demo\,pix\,dorigao' \
+  --set guard.allowedTargetNamespaces="${TARGET_NAMESPACES// /\\,}" \
+  --set rbac.targetNamespaces="{${TARGET_NAMESPACES// /,}}" \
   --set guard.aiDailyLimit="${AI_DAILY_LIMIT:-60}" \
   --wait --timeout 10m >/dev/null
 
@@ -131,7 +138,7 @@ java_otel=(--set otel.enabled="$OBS_ON" --set otel.java="$OBS_ON" --set otel.pro
 
 for t in $TARGETS; do
   case "$t" in
-    demo-api) step "Alvo demo-api"; target demo-api demo --set image="$ACR/new-app-chaos-demo-api:$TAG" ;;
+    demo-api) step "Alvo demo-api"; target demo-api demo --set image="$ACR/new-app-chaos-demo-api:$TAG" --set revision="${GITHUB_SHA:-}" ;; # o demo-api é deste repositório
     pix)
       step "Alvo pix-api + Postgres"
       target pix-postgres pix

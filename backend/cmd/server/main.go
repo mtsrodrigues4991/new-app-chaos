@@ -89,6 +89,9 @@ func main() {
 	if len(guard.AllowedHosts) > 0 {
 		log.Printf("alvos permitidos: %v", guard.AllowedHosts)
 	}
+	if len(guard.AllowedNamespaces) > 0 {
+		log.Printf("namespaces permitidos para alvos e dependências: %v", guard.AllowedNamespaces)
+	}
 	if guard.AIDailyLimit > 0 {
 		log.Printf("limite diário da IA: %d", guard.AIDailyLimit)
 	}

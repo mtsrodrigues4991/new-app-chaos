@@ -28,6 +28,10 @@ type RunData struct {
 	Verdict verdict.Verdict
 	// Diagnostics são os logs e eventos coletados (nil em execuções antigas).
 	Diagnostics *store.Diagnostics
+	// Versions são as imagens e commits testados (nil em execuções antigas).
+	Versions []store.Version
+	// Summary são os números da execução inteira e por endpoint (nil sem carga ou em execuções antigas).
+	Summary *load.Summary
 }
 
 // Stats é o resumo numérico de uma execução.
@@ -303,7 +307,15 @@ func Describe(title string, d RunData, maxRows, diagChars int) string {
 	fmt.Fprintf(&b, "### Cenário como estava ao rodar\n```json\n%s\n```\n\n", jsonText(r.Scenario))
 	fmt.Fprintf(&b, "### Veredito calculado pelo app (determinístico)\n```json\n%s\n```\n\n", jsonText(d.Verdict))
 	fmt.Fprintf(&b, "### Falhas: instantes reais (segundos desde o início)\n```json\n%s\n```\n\n", jsonText(d.Events))
+	if len(d.Versions) > 0 {
+		fmt.Fprintf(&b, "### Versão testada (imagens e commit no início da execução)\n```json\n%s\n```\n\n", jsonText(d.Versions))
+	} else {
+		b.WriteString("### Versão testada\nNão registrada nesta execução.\n\n")
+	}
 	fmt.Fprintf(&b, "### Resumo numérico\n```json\n%s\n```\n\n", jsonText(Summarize(d.Windows)))
+	if d.Summary != nil {
+		fmt.Fprintf(&b, "### Resumo da execução inteira e por endpoint (percentis do k6 sobre todas as requisições)\n```json\n%s\n```\n\n", jsonText(d.Summary))
+	}
 	fmt.Fprintf(&b, "### Série por segundo (CSV)\n```csv\n%s```\n", Series(d, maxRows))
 	if diagChars > 0 && d.Diagnostics != nil {
 		b.WriteString("\n" + DescribeDiagnostics(d.Diagnostics, diagChars))

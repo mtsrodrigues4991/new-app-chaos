@@ -207,3 +207,20 @@ func TestDescribeApp(t *testing.T) {
 		}
 	}
 }
+
+// As evidências dizem qual versão rodou e trazem os números por endpoint; sem registro, dizem
+// que não há (para a IA não supor).
+func TestDescribeVersionsAndSummary(t *testing.T) {
+	d := runData("r1", 20)
+	if out := Describe("Execução", d, MaxRows, 0); !strings.Contains(out, "Versão testada\nNão registrada") || strings.Contains(out, "por endpoint") {
+		t.Fatalf("execução antiga: esperava 'não registrada' e nenhum resumo por endpoint:\n%s", out)
+	}
+	d.Versions = []store.Version{{Role: store.RoleTarget, Name: "pix/pix-api", Commit: "d4c145f82ff2", Images: []store.Image{{Image: "pix-api:v2", ID: "sha256:abc"}}}}
+	d.Summary = &load.Summary{OpenModel: true, TargetRate: 200, Endpoints: []load.EndpointSummary{{Method: "GET", Path: "/pix-keys", Segment: load.Segment{P95Ms: 48.25}}}}
+	out := Describe("Execução", d, MaxRows, 0)
+	for _, want := range []string{`"commit": "d4c145f82ff2"`, `"id": "sha256:abc"`, `"openModel": true`, `"path": "/pix-keys"`, `"p95Ms": 48.25`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("evidências sem %s:\n%s", want, out)
+		}
+	}
+}

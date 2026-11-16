@@ -39,11 +39,23 @@ for tool in docker kind kubectl helm git; do
 done
 docker info >/dev/null 2>&1 || fail "o Docker não está respondendo (no WSL: sudo service docker start)."
 
+# Commit do código de uma pasta, só quando ela não tem mudança local: um commit declarado tem
+# que ser exatamente o código que foi construído. Vazio = não declarar.
+revision() { # revision <pasta>
+  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  [[ -z "$(git -C "$1" status --porcelain -- . 2>/dev/null)" ]] || return 0
+  git -C "$1" rev-parse HEAD 2>/dev/null || true
+}
+
 build() { # build <imagem> <contexto> [Dockerfile]
-  local img=$1 ctx=$2 file=${3:-}
-  echo "construindo $img"
-  if [[ -n "$file" ]]; then docker build -q -t "$img" -f "$file" "$ctx" >/dev/null
-  else docker build -q -t "$img" "$ctx" >/dev/null; fi
+  local img=$1 ctx=$2 file=${3:-} rev
+  local -a args=(-q -t "$img")
+  # O commit vai no rótulo OCI da imagem; o new-app-chaos registra em cada execução.
+  rev="$(revision "$ctx")"
+  [[ -n "$rev" ]] && args+=(--label "org.opencontainers.image.revision=$rev")
+  [[ -n "$file" ]] && args+=(-f "$file")
+  echo "construindo $img${rev:+ (commit ${rev:0:12})}"
+  docker build "${args[@]}" "$ctx" >/dev/null
 }
 
 # Carrega imagens no nó do KIND. O `kind load` falha no Docker 29 com o image store do
@@ -146,7 +158,7 @@ if [[ -z "${ONLY_APP:-}" ]]; then
         step "Alvo demo-api (namespace demo)"
         build new-app-chaos-demo-api:dev examples/demo-api
         load new-app-chaos-demo-api:dev
-        target demo-api demo
+        target demo-api demo --set revision="$(revision examples/demo-api)"
         ;;
       pix)
         step "Alvo itau-case-pix + Postgres (namespace pix)"
@@ -155,14 +167,14 @@ if [[ -z "${ONLY_APP:-}" ]]; then
         docker image inspect postgres:16-alpine >/dev/null 2>&1 || docker pull -q postgres:16-alpine >/dev/null
         load new-app-chaos-pix-api:dev postgres:16-alpine
         target pix-postgres pix
-        target pix-api pix "${java_otel[@]}"
+        target pix-api pix --set revision="$(revision "$PIX_DIR")" "${java_otel[@]}"
         ;;
       svc-pedido|svc-pagamento|svc-catalogo)
         step "Alvo $t (namespace dorigao)"
         clone "https://github.com/Dorigao-LTDA/$t" "$DORIGAO_DIR/$t"
         build "new-app-chaos-$t:dev" "$DORIGAO_DIR/$t"
         load "new-app-chaos-$t:dev"
-        target "$t" dorigao
+        target "$t" dorigao --set revision="$(revision "$DORIGAO_DIR/$t")"
         ;;
       *) fail "alvo desconhecido: $t" ;;
     esac

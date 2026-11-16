@@ -24,7 +24,7 @@ e uma análise da IA dizendo o que quebrou, por quê e onde corrigir no código.
 
 | | |
 |---|---|
-| 📈 **Carga** | Monte os endpoints e o perfil (rampa, patamar, pico). O k6 roda e os gráficos aparecem ao vivo: latência p50/p95/p99, RPS, erros, CPU e memória do alvo. |
+| 📈 **Carga** | Monte os endpoints e o perfil (rampa, patamar, pico), em usuários virtuais ou em requisições por segundo fixas. O k6 roda e os gráficos aparecem ao vivo: latência p50/p95/p99, RPS, erros, CPU e memória do alvo. |
 | 💥 **Caos** | Arraste falhas numa linha do tempo: latência, perda de pacotes, CPU, memória e kill. No Kubernetes também falhas de disco, DNS e HTTP, inclusive em dependências como o Postgres. |
 | 🎯 **Veredito** | SLOs editáveis e uma nota de resiliência de 0 a 100 (inspirada no Resiliency Score do krkn), sem IA e reproduzível. |
 | 🤖 **IA** | Relatório sob demanda com ponto de quebra, causas e correções que apontam arquivo e linha do seu repositório. Compara com uma execução de referência e tem chat por execução. |
@@ -233,6 +233,7 @@ docs/                especificação e funcionalidades
 - **MVP (Docker):** esqueleto, carga com k6 e gráficos ao vivo, 5 falhas numa linha do tempo arrastável, veredito com nota, análise e chat com IA, relatório imprimível e IA lendo o código no GitHub.
 - **MVP2 (Kubernetes local):** KIND + Helm, falhas pelo Chaos Mesh, falhas em dependências, disco, DNS e HTTP, logs e eventos do Kubernetes na IA, stack Grafana opcional, visual novo.
 - **MVP plus (Azure):** AKS com URL pública, HTTPS e login, liga e desliga pelo GitHub Actions, k6 em nó spot separado e Grafana isolado dos alvos.
+- **Fase 0 da [análise de evolução](docs/analise-evolucao.md), medição confiável:** carga por taxa de chegada, aquecimento, números da execução inteira e por endpoint, versão testada (imagem e commit) em cada execução, IA lendo o commit que rodou e trava de namespaces. Resultado medido em [docs/resultados/fase-0-medicao-confiavel.md](docs/resultados/fase-0-medicao-confiavel.md).
 
 ### 📋 Backlog
 
@@ -249,6 +250,7 @@ docs/                especificação e funcionalidades
 
 **Nuvem**
 - [ ] Histórico persistente na Azure (hoje some ao desligar)
+- [ ] Acesso de visualizador: quem não tem login vê execuções escolhidas, só leitura (para divulgar resultados)
 - [ ] Domínio próprio
 - [ ] Perfis de acesso (hoje quem entra pode tudo)
 - [ ] AWS (EKS)

@@ -8,7 +8,14 @@ Lista os containers Docker rodando (nome, imagem, portas, rede) e cria um cenár
 
 ## Cenários
 
-Editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia dos VUs. Salvos em SQLite.
+Editor por formulário com alvo, URL base, endpoints (método, caminho, corpo, peso) e perfil de carga pronto (rampa, patamar ou pico) com prévia. Salvos em SQLite.
+
+O perfil tem dois modelos de carga:
+
+- **Usuários virtuais** (padrão): cada VU espera a resposta antes do próximo pedido. Se a API fica lenta, a carga cai junto. Bom para achar o ponto de quebra; ruim para comparar duas versões, porque a mais rápida recebe mais carga.
+- **Taxa de chegada:** requisições por segundo fixas (executor `ramping-arrival-rate` do k6), responda a API rápido ou devagar. É o modelo para comparar antes e depois. Pede também os **VUs pré-alocados**, o teto de requisições simultâneas: taxa × tempo de resposta esperado em segundos, com folga. Se faltar VU, o k6 descarta requisições e a execução avisa que não serve para comparação.
+
+O **aquecimento** (segundos, opcional) tira das medições da janela estável as requisições iniciadas no começo do teste, quando JIT, pools e caches ainda estão enchendo.
 
 ## Execução
 
@@ -17,6 +24,16 @@ O backend sobe um container `grafana/k6` na mesma rede do alvo, lê as métricas
 ## Gráficos ao vivo e histórico
 
 Latência p50/p95/p99, RPS, VUs ativos, respostas por código HTTP, taxa de erro, CPU e memória do container alvo. Tudo agregado por segundo e salvo, então execuções antigas podem ser reabertas.
+
+## Medição da execução
+
+Quando a execução termina, o cartão **Medição** (aba Resumo) mostra o que serve para comparar duas execuções:
+
+- **Versão testada:** a imagem e o identificador do conteúdo (digest do registry ou id da imagem local) do alvo e das dependências usadas nas falhas, lidos no início da execução. O commit aparece quando é declarado: pelo rótulo OCI `org.opencontainers.image.revision` da imagem (Docker) ou pela anotação de mesmo nome no pod (Kubernetes; o `kind-up.sh` preenche os dois quando a pasta do alvo não tem mudança local). Sem declaração, a tela diz "não declarado" em vez de supor. Pods com versões diferentes durante o teste ficam marcados.
+- **Números da execução inteira, da janela estável e por endpoint:** requisições, vazão, erro, p50, p95, p99 e máximo, calculados pelo k6 sobre todas as requisições do trecho (e não sobre os percentis de cada segundo). A janela estável e os endpoints contam só as requisições iniciadas depois do aquecimento. Até 20 endpoints têm números próprios; os demais entram só nos totais.
+- **Avisos:** a execução diz quando não serve para comparação (carga em VUs, requisições descartadas por falta de VU, nenhuma requisição na janela estável).
+
+A IA recebe a versão e esses números junto das outras evidências.
 
 ## Caos
 
@@ -44,7 +61,7 @@ O botão "Analisar com IA" manda as evidências da execução (cenário, veredit
 
 - **Regressão:** marque uma execução como referência do cenário (☆ no veredito). As próximas análises do mesmo cenário trazem a comparação com ela. Nunca compara com outro cenário ou alvo.
 - **Chat** em cada execução: a IA vê a execução, o relatório, a referência e o histórico do mesmo cenário. A conversa fica salva.
-- **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa essa branch (fica em cache por commit), navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
+- **Código da aplicação:** no cenário, informe o repositório no GitHub (`dono/repo` ou URL), a branch e, se quiser, uma subpasta. Na análise e no chat a IA baixa o commit que estava implantado durante o teste, quando a imagem do alvo o declara (ver "Medição da execução"); sem isso, baixa o topo da branch e o relatório avisa que pode não ser o código que rodou. A cópia fica em cache (os três commits usados por último de cada repositório). A IA, navega no código só com leitura (listar pastas, buscar, abrir até 30 arquivos por análise) e as correções apontam arquivo e linha com link para o GitHub e o trecho proposto. O relatório registra o commit lido. Repositório privado precisa de `GITHUB_TOKEN` no `.env`. Sem repositório, nada muda.
 - **Relatório imprimível:** o botão "Imprimir / salvar PDF" na execução gera um relatório em A4, sempre em tema claro, com números, veredito, falhas, gráficos e a análise da IA (sem o chat).
 - **Configurações:** escolhe provedor e modelo (padrão Claude Opus 5.5; Sonnet 5.5 e Haiku 5.5 são mais baratos). A camada de provedor (`backend/internal/ai`) é trocável.
 
@@ -64,6 +81,7 @@ O app também roda dentro de um cluster KIND local (`make kind-up`). Lá o alvo 
   - As cores seguem o efeito: atrasos usam a cor da latência e erros a da perda; o rótulo do bloco diz qual é a falha e, se for numa dependência, onde (`@ pix-postgres`, ou `→ pix-postgres` só no caminho).
 - **Falha que não confirma:** se o Chaos Mesh não confirma a injeção em 45 s (ou até o fim do bloco, se ele for mais curto), a falha fica marcada como "falhou" (com o erro do Chaos Mesh) e a execução segue com as próximas. O recurso é apagado em segundo plano, sem atrasar as próximas falhas, e, se o Chaos Mesh não o liberar, o app tira o finalizer dele para não deixar nada preso no cluster.
 - **Logs e eventos na análise (fase C):** durante a execução o app coleta o log dos containers do alvo e das dependências usadas nas falhas (um stream do log de cada container, aberto assim que o pod aparece e mantido até ele terminar, então um pod apagado pelo kill fica com as linhas até o fim; a instância anterior de um container que reiniciou também entra) e, no fim, os eventos do Kubernetes desses namespaces (Killing, Unhealthy, BackOff...; do Chaos Mesh só Applied, Recovered e erros). Os eventos têm precisão de 1 s, então podem aparecer até ~1 s antes. No Docker entra o log do container alvo. Tudo fica salvo com a execução, aparece em "Logs e eventos" na tela dela (com a falha ativa em cada linha) e vai para a IA resumido: linhas iguais a menos de números juntadas, prioridade para erros, conexões, partidas e paradas, até ~40 mil caracteres.
+- **Onde as falhas podem entrar:** o alvo e as dependências nunca podem estar num namespace de sistema (`kube-system` e outros `kube-*`, `chaos-mesh`, `observability`, `cert-manager`, `traefik`, `ingress-nginx`, `gatekeeper-system`, `openshift-*`, `local-path-storage`) nem no do próprio app: a API recusa o cenário ao salvar e ao disparar. Com `ALLOWED_TARGET_NAMESPACES` (valor `guard.allowedTargetNamespaces` do chart), só os namespaces listados são aceitos. O valor `rbac.targetNamespaces` do chart vai além: o backend só recebe permissão de criar falhas nesses namespaces (Role por namespace no lugar do ClusterRole), e o próprio Kubernetes recusa o resto.
 - O modo Docker não mudou: `docker compose up` continua igual.
 
 ## Observabilidade opcional (Grafana)

@@ -38,3 +38,7 @@ resources:
   limits: { cpu: 500m, memory: 256Mi }
 # Muda a cada make kind-up para os pods pegarem a imagem recém-carregada (mesma tag).
 buildId: ""
+# Commit do código que gerou a imagem (git rev-parse HEAD). Vira a anotação
+# org.opencontainers.image.revision do pod: o new-app-chaos registra em cada execução qual
+# commit foi testado e a IA lê o código desse commit. Vazio = não declarado.
+revision: ""

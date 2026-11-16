@@ -29,6 +29,8 @@ type Target interface {
 	ApplyFault(ctx context.Context, runID string, f scenario.Fault) (chaos.Revert, error)
 	// ProbeURL devolve a URL que a sonda (modo só caos) consulta.
 	ProbeURL(ctx context.Context, sc scenario.Scenario) (string, error)
+	// Versions lê quais imagens (e commits, quando declarados) o alvo e as dependências rodam.
+	Versions(ctx context.Context) ([]store.Version, error)
 }
 
 // Sample é uma amostra do consumo do alvo.

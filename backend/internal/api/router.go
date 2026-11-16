@@ -150,9 +150,18 @@ func decodeScenario(r *http.Request) (scenario.Scenario, error) {
 	return sc, sc.Validate()
 }
 
-// checkScenario junta a validação do cenário com as regras do modo nuvem.
+// checkScenario confere para onde o cenário manda carga (URL base) e onde injeta falhas
+// (namespace do alvo e das dependências). Roda ao salvar e de novo ao disparar: um cenário
+// salvo antes de uma trava existir não passa por ela.
 func (s *Server) checkScenario(sc scenario.Scenario) error {
-	return s.Guard.CheckTarget(sc.Target.BaseURL)
+	if err := s.Guard.CheckTarget(sc.Target.BaseURL); err != nil {
+		return err
+	}
+	ownNS := ""
+	if s.Kube != nil {
+		ownNS = s.Kube.Namespace()
+	}
+	return s.Guard.CheckNamespaces(sc, ownNS)
 }
 
 func (s *Server) createScenario(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +279,11 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		Verdict        *verdict.Verdict   `json:"verdict,omitempty"` // só depois que a execução termina
 		ReferenceRunID string             `json:"referenceRunId,omitempty"`
 		Analysis       *analysis.Report   `json:"analysis,omitempty"`
-	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID}
+		// Versions: imagens e commits testados (ausente em execuções antigas).
+		Versions []store.Version `json:"versions,omitempty"`
+		// Summary: números da execução inteira e por endpoint (ausente sem carga ou em execuções antigas).
+		Summary *load.Summary `json:"summary,omitempty"`
+	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID, Versions: d.Versions, Summary: d.Summary}
 	if finished(d.Run) {
 		out.Verdict = &d.Verdict
 		var rep analysis.Report

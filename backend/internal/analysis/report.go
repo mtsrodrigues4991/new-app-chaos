@@ -122,6 +122,8 @@ Analisa execuções do app new-app-chaos: carga com k6 e/ou falhas injetadas no 
 Como ler os dados:
 - t é o segundo desde o início da execução. A coluna "falha" diz qual falha estava ativa naquele segundo.
 - Latência e erro ficam vazios num segundo sem requisição concluída. "presa" > 0 significa usuários virtuais ativos e nenhuma resposta (alvo travado ou fora do ar); conte isso como indisponibilidade.
+- "Resumo da execução inteira e por endpoint", quando vier, traz os percentis calculados pelo k6 sobre todas as requisições: "overall" cobre a execução toda e "steady" só as requisições iniciadas depois do aquecimento (warmupSeconds); "endpoints" são os números da janela estável por endpoint. Para dizer qual endpoint é lento ou falha, use esses números, e não a série por segundo (que mistura todos). No "Resumo numérico", p95MedianMs e p95MaxMs são a mediana e o máximo dos p95 de cada segundo, não o p95 da execução. openModel=true é carga por taxa de chegada (a vazão não depende da latência); com openModel=false a vazão cai quando a API fica lenta, então menos requisições não significa menos demanda. Se houver "warnings" (ex.: iterações descartadas), a execução não serve para comparação: diga isso.
+- "Versão testada" diz quais imagens e qual commit rodaram. Ao comparar com a referência, confira se a versão mudou; se for a mesma, a diferença não vem do código. "mixed" significa pods com versões diferentes durante o teste.
 - cpu_pct é do alvo (100 = 1 núcleo inteiro); mem_mb é a memória usada. No Kubernetes são a soma dos pods do Deployment, vindas do metrics-server, que atualiza a cada ~15 s (valores repetidos entre leituras são normais). pods_prontos/pods_total mostram quantos pods estavam prontos (pior momento do bloco).
 - O veredito e a nota (0 a 100) foram calculados pelo app a partir dos SLOs do cenário, sem IA: cada falha vale 70% pelo tempo dentro dos SLOs enquanto ativa e 30% pela recuperação (cheia até 5 s, zero a partir de 60 s); com falhas, a linha de base pesa 20% e as falhas 80%. Explique a nota, não a recalcule nem a contradiga.
 - Quando vierem "Eventos do Kubernetes" e "Logs dos containers", o t de cada linha está na mesma escala da série (segundos desde o início). Cruze-os com a coluna "falha" e as métricas: diga o que o alvo e as dependências registraram durante cada falha (ex.: erro de conexão com o banco, pool esgotado, timeout, reinício, readiness falhando) e quanto tempo depois voltaram ao normal. Cite a linha ou o evento com o t. Linhas "[xN até t=...]" se repetiram N vezes. Quando vier "Telemetria da aplicação", use-a para explicar o porquê: heap e pausas de GC, threads, requisições recebidas (taxa, p95, 5xx), chamadas de saída, pool de conexões do banco (em uso, esperando conexão, tempo de espera), os traces com erro e lentos (os spans dizem onde o tempo foi gasto e qual exceção ocorreu) e o profiling (funções que mais consumiram CPU ou alocaram memória na execução inteira). Cite valores e o t. Diga quando uma métrica que ajudaria não existe. As séries de taxa e p95 do Prometheus chegam ~5 a 15 s atrasadas em relação à sonda, à série do k6 e à coluna "falha" (o histograma é registrado quando a requisição termina, e a taxa usa uma janela de 10 s): compare pelo formato e pela ordem dos eventos, não pelo segundo exato. O profiling já vem sem o custo do próprio agente de observabilidade. Os eventos do Kubernetes têm precisão de 1 s (o instante é truncado), então podem aparecer até ~1 s antes do que a série e os logs mostram; não trate essa diferença como atraso ou relógio errado. Se os logs não mostram nada durante uma falha, diga isso; não invente mensagens.
@@ -142,9 +144,13 @@ func codeInstructions(b *coderepo.Browser) string {
 	if s.Path != "" {
 		where += " (subpasta " + s.Path + ")"
 	}
+	pinned := "Este é o topo do branch agora: a imagem testada não declara o commit, então o código pode ser diferente do que rodou. Diga isso quando uma conclusão depender de uma linha específica."
+	if s.Pinned {
+		pinned = "Este é o commit que estava implantado durante o teste (declarado pela imagem do alvo)."
+	}
 	return fmt.Sprintf(`
 
-Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação.
+Código da aplicação testada: você tem acesso só de leitura ao repositório %s, branch %s, commit %s, pelas ferramentas list_dir, search_code e read_file. Os caminhos são relativos à raiz da aplicação. %s
 
 Arquivos do repositório:
 <arvore>
@@ -163,7 +169,7 @@ Regras para citar código:
 - Antes de supor uma biblioteca ou recurso (ex.: Spring Boot Actuator, Resilience4j), confira no arquivo de dependências; se não estiver, inclua a dependência na sugestão.
 - Para um arquivo que ainda não existe (ex.: Dockerfile), use o caminho onde ele deve ser criado, line 0, e diga que é um arquivo novo.
 - Link de um arquivo no GitHub: %s (troque CAMINHO e N).`,
-		where, s.Branch, s.Commit, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
+		where, s.Branch, s.Commit, pinned, b.Tree(), b.MaxReads, s.URL("CAMINHO", 0)+"#LN")
 }
 
 const codeReportTask = `Nas sugestões de correção, preencha file e line com o ponto exato no código (ou na configuração) e code com o trecho proposto.`

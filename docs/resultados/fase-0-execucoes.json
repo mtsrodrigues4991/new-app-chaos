@@ -1,0 +1,1867 @@
+[
+ {
+  "arm": "controle",
+  "cond": "lat200",
+  "rep": 1,
+  "order": 1,
+  "runId": "67db884360e88b3f",
+  "status": "completed",
+  "winRps": 99.23529411764706,
+  "winP50Ms": 200.45,
+  "winP95Ms": 205.4,
+  "winErrPct": 0,
+  "winCpuPct": 8.111764705882353,
+  "faultAppliedAt": 8.337,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 24348,
+    "rps": 405.7,
+    "errorRatePct": 0,
+    "avgMs": 44.39,
+    "p50Ms": 0.52,
+    "p90Ms": 200.44,
+    "p95Ms": 200.58,
+    "p99Ms": 205.62,
+    "maxMs": 435.1
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 24348,
+    "rps": 405.7,
+    "errorRatePct": 0,
+    "avgMs": 44.39,
+    "p50Ms": 0.52,
+    "p90Ms": 200.44,
+    "p95Ms": 200.58,
+    "p99Ms": 205.62,
+    "maxMs": 435.1
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 21885,
+     "rps": 364.7,
+     "errorRatePct": 0,
+     "avgMs": 42,
+     "p50Ms": 0.38,
+     "p90Ms": 200.42,
+     "p95Ms": 200.53,
+     "p99Ms": 200.7,
+     "maxMs": 433.48
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 2463,
+     "rps": 41,
+     "errorRatePct": 0,
+     "avgMs": 65.66,
+     "p50Ms": 16.65,
+     "p90Ms": 205.51,
+     "p95Ms": 206.23,
+     "p99Ms": 208.3,
+     "maxMs": 435.1
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat0",
+  "rep": 1,
+  "order": 2,
+  "runId": "1a3cba0fdc5c3eaa",
+  "status": "completed",
+  "winRps": 1805.3823529411766,
+  "winP50Ms": 1.2,
+  "winP95Ms": 80,
+  "winErrPct": 0,
+  "winCpuPct": 202.0176470588235,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60.1,
+    "requests": 107953,
+    "rps": 1797.7,
+    "errorRatePct": 0,
+    "avgMs": 9.88,
+    "p50Ms": 0.93,
+    "p90Ms": 33.6,
+    "p95Ms": 77.86,
+    "p99Ms": 92.55,
+    "maxMs": 192.77
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60.1,
+    "requests": 107953,
+    "rps": 1797.7,
+    "errorRatePct": 0,
+    "avgMs": 9.88,
+    "p50Ms": 0.93,
+    "p90Ms": 33.6,
+    "p95Ms": 77.86,
+    "p99Ms": 92.55,
+    "maxMs": 192.77
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60.1,
+     "requests": 97069,
+     "rps": 1616.5,
+     "errorRatePct": 0,
+     "avgMs": 5.17,
+     "p50Ms": 0.74,
+     "p90Ms": 5.42,
+     "p95Ms": 61.76,
+     "p99Ms": 75.26,
+     "maxMs": 101.19
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60.1,
+     "requests": 10884,
+     "rps": 181.2,
+     "errorRatePct": 0,
+     "avgMs": 51.83,
+     "p50Ms": 70.13,
+     "p90Ms": 92.44,
+     "p95Ms": 95.9,
+     "p99Ms": 103.19,
+     "maxMs": 192.77
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat0",
+  "rep": 1,
+  "order": 3,
+  "runId": "2835f9a1341ac6ab",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 0.3,
+  "winP95Ms": 4.9,
+  "winErrPct": 0,
+  "winCpuPct": 20.982352941176476,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 0.83,
+    "p50Ms": 0.36,
+    "p90Ms": 4.13,
+    "p95Ms": 4.95,
+    "p99Ms": 5.81,
+    "maxMs": 11.68
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 0.82,
+    "p50Ms": 0.35,
+    "p90Ms": 0.83,
+    "p95Ms": 4.92,
+    "p99Ms": 5.8,
+    "maxMs": 11.68
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8336,
+     "rps": 208.3,
+     "errorRatePct": 0,
+     "avgMs": 0.36,
+     "p50Ms": 0.34,
+     "p90Ms": 0.48,
+     "p95Ms": 0.53,
+     "p99Ms": 0.63,
+     "maxMs": 1.35
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 914,
+     "rps": 22.8,
+     "errorRatePct": 0,
+     "avgMs": 5.03,
+     "p50Ms": 4.93,
+     "p90Ms": 5.8,
+     "p95Ms": 6.19,
+     "p99Ms": 7.56,
+     "maxMs": 11.68
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat200",
+  "rep": 1,
+  "order": 4,
+  "runId": "197882e5a4f5a6e4",
+  "status": "completed",
+  "winRps": 250.38235294117646,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 19.552941176470593,
+  "faultAppliedAt": 8.215,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 181.13,
+    "p50Ms": 200.37,
+    "p90Ms": 200.7,
+    "p95Ms": 204.99,
+    "p99Ms": 205.92,
+    "maxMs": 435.72
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 199.69,
+    "p50Ms": 200.38,
+    "p90Ms": 204.3,
+    "p95Ms": 205.07,
+    "p99Ms": 206.06,
+    "maxMs": 435.72
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8329,
+     "rps": 208.1,
+     "errorRatePct": 0,
+     "avgMs": 199.28,
+     "p50Ms": 200.37,
+     "p90Ms": 200.52,
+     "p95Ms": 200.57,
+     "p99Ms": 200.73,
+     "maxMs": 435.72
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 921,
+     "rps": 23,
+     "errorRatePct": 0,
+     "avgMs": 203.45,
+     "p50Ms": 205.04,
+     "p90Ms": 205.95,
+     "p95Ms": 206.3,
+     "p99Ms": 207.37,
+     "maxMs": 216.12
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "antes",
+  "cond": "lat200",
+  "rep": 1,
+  "order": 5,
+  "runId": "941436c4c377b787",
+  "status": "completed",
+  "winRps": 99.88235294117646,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 7.205882352941177,
+  "faultAppliedAt": 8.222
+ },
+ {
+  "arm": "antes",
+  "cond": "lat0",
+  "rep": 1,
+  "order": 6,
+  "runId": "52fbd0c9ea2bde1b",
+  "status": "completed",
+  "winRps": 1875.735294117647,
+  "winP50Ms": 1.05,
+  "winP95Ms": 82.1,
+  "winErrPct": 0,
+  "winCpuPct": 201.60000000000002
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat0",
+  "rep": 2,
+  "order": 7,
+  "runId": "f5c30ea54eadaf48",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 0.3,
+  "winP95Ms": 4.95,
+  "winErrPct": 0,
+  "winCpuPct": 21.573529411764703,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 0.84,
+    "p50Ms": 0.36,
+    "p90Ms": 0.93,
+    "p95Ms": 5.03,
+    "p99Ms": 5.98,
+    "maxMs": 8.82
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 0.83,
+    "p50Ms": 0.35,
+    "p90Ms": 0.93,
+    "p95Ms": 4.98,
+    "p99Ms": 5.88,
+    "maxMs": 8.72
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8331,
+     "rps": 208.2,
+     "errorRatePct": 0,
+     "avgMs": 0.36,
+     "p50Ms": 0.34,
+     "p90Ms": 0.49,
+     "p95Ms": 0.54,
+     "p99Ms": 0.68,
+     "maxMs": 1.98
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 919,
+     "rps": 23,
+     "errorRatePct": 0,
+     "avgMs": 5.1,
+     "p50Ms": 4.99,
+     "p90Ms": 5.88,
+     "p95Ms": 6.26,
+     "p99Ms": 7.42,
+     "maxMs": 8.72
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat200",
+  "rep": 2,
+  "order": 8,
+  "runId": "6b14e9990f8984c0",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 20.185294117647057,
+  "faultAppliedAt": 8.235,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13500,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 181.11,
+    "p50Ms": 200.36,
+    "p90Ms": 200.79,
+    "p95Ms": 204.98,
+    "p99Ms": 205.9,
+    "maxMs": 440.2
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9251,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 199.67,
+    "p50Ms": 200.37,
+    "p90Ms": 204.28,
+    "p95Ms": 205.06,
+    "p99Ms": 205.98,
+    "maxMs": 440.2
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8308,
+     "rps": 207.6,
+     "errorRatePct": 0,
+     "avgMs": 199.2,
+     "p50Ms": 200.36,
+     "p90Ms": 200.53,
+     "p95Ms": 200.6,
+     "p99Ms": 200.8,
+     "maxMs": 440.2
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 943,
+     "rps": 23.6,
+     "errorRatePct": 0,
+     "avgMs": 203.86,
+     "p50Ms": 205.02,
+     "p90Ms": 205.89,
+     "p95Ms": 206.2,
+     "p99Ms": 206.91,
+     "maxMs": 428.23
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "antes",
+  "cond": "lat200",
+  "rep": 2,
+  "order": 9,
+  "runId": "999d68595e0e0387",
+  "status": "completed",
+  "winRps": 99.55882352941177,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 7.291176470588234,
+  "faultAppliedAt": 8.263
+ },
+ {
+  "arm": "antes",
+  "cond": "lat0",
+  "rep": 2,
+  "order": 10,
+  "runId": "7fdea5d457c0fa68",
+  "status": "completed",
+  "winRps": 1896.8235294117646,
+  "winP50Ms": 1,
+  "winP95Ms": 82,
+  "winErrPct": 0,
+  "winCpuPct": 201.0764705882353
+ },
+ {
+  "arm": "controle",
+  "cond": "lat0",
+  "rep": 2,
+  "order": 11,
+  "runId": "d3d698ac5b1a4824",
+  "status": "completed",
+  "winRps": 1912,
+  "winP50Ms": 1.1,
+  "winP95Ms": 80.15,
+  "winErrPct": 0,
+  "winCpuPct": 202.1764705882354,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 116195,
+    "rps": 1935.6,
+    "errorRatePct": 0,
+    "avgMs": 9.19,
+    "p50Ms": 0.83,
+    "p90Ms": 19.98,
+    "p95Ms": 76.58,
+    "p99Ms": 91,
+    "maxMs": 188.96
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 116195,
+    "rps": 1935.6,
+    "errorRatePct": 0,
+    "avgMs": 9.19,
+    "p50Ms": 0.83,
+    "p90Ms": 19.98,
+    "p95Ms": 76.58,
+    "p99Ms": 91,
+    "maxMs": 188.96
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 104562,
+     "rps": 1741.8,
+     "errorRatePct": 0,
+     "avgMs": 4.71,
+     "p50Ms": 0.67,
+     "p90Ms": 4.59,
+     "p95Ms": 12.02,
+     "p99Ms": 74.6,
+     "maxMs": 89.24
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 11633,
+     "rps": 193.8,
+     "errorRatePct": 0,
+     "avgMs": 49.45,
+     "p50Ms": 25.43,
+     "p90Ms": 90.99,
+     "p95Ms": 93.9,
+     "p99Ms": 99.29,
+     "maxMs": 188.96
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat200",
+  "rep": 2,
+  "order": 12,
+  "runId": "f2914c07bb5f324e",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 7.42058823529412,
+  "faultAppliedAt": 8.219,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 25009,
+    "rps": 416.7,
+    "errorRatePct": 0,
+    "avgMs": 43.23,
+    "p50Ms": 0.53,
+    "p90Ms": 200.41,
+    "p95Ms": 200.59,
+    "p99Ms": 205.3,
+    "maxMs": 438.2
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 25009,
+    "rps": 416.7,
+    "errorRatePct": 0,
+    "avgMs": 43.23,
+    "p50Ms": 0.53,
+    "p90Ms": 200.41,
+    "p95Ms": 200.59,
+    "p99Ms": 205.3,
+    "maxMs": 438.2
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 22467,
+     "rps": 374.4,
+     "errorRatePct": 0,
+     "avgMs": 40.69,
+     "p50Ms": 0.39,
+     "p90Ms": 200.39,
+     "p95Ms": 200.51,
+     "p99Ms": 200.82,
+     "maxMs": 437.31
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 2542,
+     "rps": 42.4,
+     "errorRatePct": 0,
+     "avgMs": 65.74,
+     "p50Ms": 16.31,
+     "p90Ms": 205.23,
+     "p95Ms": 205.81,
+     "p99Ms": 207.17,
+     "maxMs": 438.2
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "antes",
+  "cond": "lat200",
+  "rep": 3,
+  "order": 13,
+  "runId": "21ea5951e8109476",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205.2,
+  "winErrPct": 0,
+  "winCpuPct": 7.129411764705883,
+  "faultAppliedAt": 8.259
+ },
+ {
+  "arm": "antes",
+  "cond": "lat0",
+  "rep": 3,
+  "order": 14,
+  "runId": "ad9342f55691c38b",
+  "status": "completed",
+  "winRps": 1865.5294117647059,
+  "winP50Ms": 1,
+  "winP95Ms": 83.4,
+  "winErrPct": 0,
+  "winCpuPct": 201.08235294117645
+ },
+ {
+  "arm": "controle",
+  "cond": "lat0",
+  "rep": 3,
+  "order": 15,
+  "runId": "e6dcd0bfa40198b0",
+  "status": "completed",
+  "winRps": 1815.7058823529412,
+  "winP50Ms": 1.15,
+  "winP95Ms": 80.4,
+  "winErrPct": 0,
+  "winCpuPct": 202.08823529411762,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 112758,
+    "rps": 1878.2,
+    "errorRatePct": 0,
+    "avgMs": 9.46,
+    "p50Ms": 0.85,
+    "p90Ms": 22.08,
+    "p95Ms": 77.47,
+    "p99Ms": 91.65,
+    "maxMs": 192.08
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 112758,
+    "rps": 1878.2,
+    "errorRatePct": 0,
+    "avgMs": 9.46,
+    "p50Ms": 0.85,
+    "p90Ms": 22.08,
+    "p95Ms": 77.47,
+    "p99Ms": 91.65,
+    "maxMs": 192.08
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 101316,
+     "rps": 1687.6,
+     "errorRatePct": 0,
+     "avgMs": 4.89,
+     "p50Ms": 0.68,
+     "p90Ms": 4.9,
+     "p95Ms": 58.84,
+     "p99Ms": 74.93,
+     "maxMs": 89.03
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 11442,
+     "rps": 190.6,
+     "errorRatePct": 0,
+     "avgMs": 49.97,
+     "p50Ms": 27.13,
+     "p90Ms": 91.61,
+     "p95Ms": 94.59,
+     "p99Ms": 100.37,
+     "maxMs": 192.08
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat200",
+  "rep": 3,
+  "order": 16,
+  "runId": "b92ad3b1b2bb8a97",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 204.95,
+  "winErrPct": 0,
+  "winCpuPct": 7.299999999999999,
+  "faultAppliedAt": 8.24,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 25794,
+    "rps": 429.8,
+    "errorRatePct": 0,
+    "avgMs": 41.93,
+    "p50Ms": 0.46,
+    "p90Ms": 200.36,
+    "p95Ms": 200.52,
+    "p99Ms": 205.32,
+    "maxMs": 439.63
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 25794,
+    "rps": 429.8,
+    "errorRatePct": 0,
+    "avgMs": 41.93,
+    "p50Ms": 0.46,
+    "p90Ms": 200.36,
+    "p95Ms": 200.52,
+    "p99Ms": 205.32,
+    "maxMs": 439.63
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 23208,
+     "rps": 386.7,
+     "errorRatePct": 0,
+     "avgMs": 39.45,
+     "p50Ms": 0.35,
+     "p90Ms": 200.35,
+     "p95Ms": 200.45,
+     "p99Ms": 200.72,
+     "maxMs": 439.63
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 2586,
+     "rps": 43.1,
+     "errorRatePct": 0,
+     "avgMs": 64.15,
+     "p50Ms": 15.62,
+     "p90Ms": 205.25,
+     "p95Ms": 205.82,
+     "p99Ms": 207.22,
+     "maxMs": 290.84
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat200",
+  "rep": 3,
+  "order": 17,
+  "runId": "82bdcb8c75fda35a",
+  "status": "completed",
+  "winRps": 250.35294117647058,
+  "winP50Ms": 200.3,
+  "winP95Ms": 204.8,
+  "winErrPct": 0,
+  "winCpuPct": 17.832352941176467,
+  "faultAppliedAt": 8.238,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 181.02,
+    "p50Ms": 200.3,
+    "p90Ms": 200.69,
+    "p95Ms": 204.76,
+    "p99Ms": 205.65,
+    "maxMs": 439.82
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 199.61,
+    "p50Ms": 200.31,
+    "p90Ms": 200.94,
+    "p95Ms": 204.81,
+    "p99Ms": 205.72,
+    "maxMs": 439.82
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8360,
+     "rps": 208.9,
+     "errorRatePct": 0,
+     "avgMs": 199.05,
+     "p50Ms": 200.3,
+     "p90Ms": 200.45,
+     "p95Ms": 200.54,
+     "p99Ms": 200.79,
+     "maxMs": 439.82
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 890,
+     "rps": 22.2,
+     "errorRatePct": 0,
+     "avgMs": 204.8,
+     "p50Ms": 204.83,
+     "p90Ms": 205.65,
+     "p95Ms": 205.93,
+     "p99Ms": 206.76,
+     "maxMs": 426.4
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat0",
+  "rep": 3,
+  "order": 18,
+  "runId": "11bb63122849b811",
+  "status": "completed",
+  "winRps": 250.38235294117646,
+  "winP50Ms": 0.3,
+  "winP95Ms": 4.8,
+  "winErrPct": 0,
+  "winCpuPct": 21.564705882352936,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 0.8,
+    "p50Ms": 0.31,
+    "p90Ms": 4.29,
+    "p95Ms": 4.83,
+    "p99Ms": 5.68,
+    "maxMs": 17.97
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 0.79,
+    "p50Ms": 0.31,
+    "p90Ms": 4.32,
+    "p95Ms": 4.85,
+    "p99Ms": 5.64,
+    "maxMs": 7.8
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8296,
+     "rps": 207.3,
+     "errorRatePct": 0,
+     "avgMs": 0.31,
+     "p50Ms": 0.3,
+     "p90Ms": 0.41,
+     "p95Ms": 0.45,
+     "p99Ms": 0.56,
+     "maxMs": 4.08
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 954,
+     "rps": 23.8,
+     "errorRatePct": 0,
+     "avgMs": 4.96,
+     "p50Ms": 4.83,
+     "p90Ms": 5.63,
+     "p95Ms": 5.87,
+     "p99Ms": 6.69,
+     "maxMs": 7.8
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat0",
+  "rep": 4,
+  "order": 19,
+  "runId": "45ab3990685df39f",
+  "status": "completed",
+  "winRps": 1894.7058823529412,
+  "winP50Ms": 1,
+  "winP95Ms": 81.75,
+  "winErrPct": 0,
+  "winCpuPct": 201.94117647058826,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 117242,
+    "rps": 1952.9,
+    "errorRatePct": 0,
+    "avgMs": 9.1,
+    "p50Ms": 0.79,
+    "p90Ms": 19.17,
+    "p95Ms": 77.48,
+    "p99Ms": 91.48,
+    "maxMs": 184.57
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 117242,
+    "rps": 1952.9,
+    "errorRatePct": 0,
+    "avgMs": 9.1,
+    "p50Ms": 0.79,
+    "p90Ms": 19.17,
+    "p95Ms": 77.48,
+    "p99Ms": 91.48,
+    "maxMs": 184.57
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 105612,
+     "rps": 1759.2,
+     "errorRatePct": 0,
+     "avgMs": 4.62,
+     "p50Ms": 0.64,
+     "p90Ms": 4.31,
+     "p95Ms": 10.07,
+     "p99Ms": 75.22,
+     "maxMs": 91.68
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 11630,
+     "rps": 193.7,
+     "errorRatePct": 0,
+     "avgMs": 49.83,
+     "p50Ms": 26.47,
+     "p90Ms": 91.5,
+     "p95Ms": 94.11,
+     "p99Ms": 99.79,
+     "maxMs": 184.57
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat200",
+  "rep": 4,
+  "order": 20,
+  "runId": "09ef7d1e9f1e18d5",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205.14999999999998,
+  "winErrPct": 0,
+  "winCpuPct": 7.229411764705881,
+  "faultAppliedAt": 8.241,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 25610,
+    "rps": 426.8,
+    "errorRatePct": 0,
+    "avgMs": 42.23,
+    "p50Ms": 0.45,
+    "p90Ms": 200.35,
+    "p95Ms": 200.52,
+    "p99Ms": 205.27,
+    "maxMs": 434.83
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 25610,
+    "rps": 426.8,
+    "errorRatePct": 0,
+    "avgMs": 42.23,
+    "p50Ms": 0.45,
+    "p90Ms": 200.35,
+    "p95Ms": 200.52,
+    "p99Ms": 205.27,
+    "maxMs": 434.83
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 23108,
+     "rps": 385.1,
+     "errorRatePct": 0,
+     "avgMs": 39.83,
+     "p50Ms": 0.35,
+     "p90Ms": 200.34,
+     "p95Ms": 200.45,
+     "p99Ms": 200.75,
+     "maxMs": 434.83
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 2502,
+     "rps": 41.7,
+     "errorRatePct": 0,
+     "avgMs": 64.39,
+     "p50Ms": 15.61,
+     "p90Ms": 205.24,
+     "p95Ms": 205.77,
+     "p99Ms": 207.28,
+     "maxMs": 414
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat200",
+  "rep": 4,
+  "order": 21,
+  "runId": "9bf5663fb5199fa3",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 200.3,
+  "winP95Ms": 204.9,
+  "winErrPct": 0,
+  "winCpuPct": 18.070588235294117,
+  "faultAppliedAt": 8.234,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 181.06,
+    "p50Ms": 200.32,
+    "p90Ms": 200.72,
+    "p95Ms": 204.81,
+    "p99Ms": 205.62,
+    "maxMs": 439.93
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 199.63,
+    "p50Ms": 200.33,
+    "p90Ms": 204.35,
+    "p95Ms": 204.91,
+    "p99Ms": 205.67,
+    "maxMs": 439.93
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8323,
+     "rps": 208,
+     "errorRatePct": 0,
+     "avgMs": 199.18,
+     "p50Ms": 200.32,
+     "p90Ms": 200.44,
+     "p95Ms": 200.51,
+     "p99Ms": 200.8,
+     "maxMs": 439.93
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 927,
+     "rps": 23.2,
+     "errorRatePct": 0,
+     "avgMs": 203.69,
+     "p50Ms": 204.88,
+     "p90Ms": 205.6,
+     "p95Ms": 205.8,
+     "p99Ms": 206.36,
+     "maxMs": 207.16
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat0",
+  "rep": 4,
+  "order": 22,
+  "runId": "813c4d4667813dca",
+  "status": "completed",
+  "winRps": 249.97058823529412,
+  "winP50Ms": 0.3,
+  "winP95Ms": 5,
+  "winErrPct": 0,
+  "winCpuPct": 22.047058823529408,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 0.84,
+    "p50Ms": 0.34,
+    "p90Ms": 4.26,
+    "p95Ms": 5.01,
+    "p99Ms": 5.94,
+    "maxMs": 14.18
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 0.85,
+    "p50Ms": 0.35,
+    "p90Ms": 4.27,
+    "p95Ms": 5.05,
+    "p99Ms": 5.97,
+    "maxMs": 9.19
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8300,
+     "rps": 207.4,
+     "errorRatePct": 0,
+     "avgMs": 0.36,
+     "p50Ms": 0.34,
+     "p90Ms": 0.49,
+     "p95Ms": 0.54,
+     "p99Ms": 0.65,
+     "maxMs": 1.48
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 950,
+     "rps": 23.7,
+     "errorRatePct": 0,
+     "avgMs": 5.15,
+     "p50Ms": 5.04,
+     "p90Ms": 5.94,
+     "p95Ms": 6.42,
+     "p99Ms": 7.58,
+     "maxMs": 9.19
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "antes",
+  "cond": "lat0",
+  "rep": 4,
+  "order": 23,
+  "runId": "65c0ed32215cdf41",
+  "status": "completed",
+  "winRps": 1883.5588235294117,
+  "winP50Ms": 1,
+  "winP95Ms": 82.3,
+  "winErrPct": 0,
+  "winCpuPct": 201.65588235294115
+ },
+ {
+  "arm": "antes",
+  "cond": "lat200",
+  "rep": 4,
+  "order": 24,
+  "runId": "d547ae9856ba693b",
+  "status": "completed",
+  "winRps": 99.55882352941177,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205.2,
+  "winErrPct": 0,
+  "winCpuPct": 8.088235294117647,
+  "faultAppliedAt": 8.234
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat200",
+  "rep": 5,
+  "order": 25,
+  "runId": "1a171e342d3fae93",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 19.841176470588238,
+  "faultAppliedAt": 8.231,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 181.06,
+    "p50Ms": 200.37,
+    "p90Ms": 200.66,
+    "p95Ms": 205.02,
+    "p99Ms": 206.44,
+    "maxMs": 435.2
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 199.65,
+    "p50Ms": 200.38,
+    "p90Ms": 200.91,
+    "p95Ms": 205.12,
+    "p99Ms": 206.52,
+    "maxMs": 435.2
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8360,
+     "rps": 208.9,
+     "errorRatePct": 0,
+     "avgMs": 199.13,
+     "p50Ms": 200.37,
+     "p90Ms": 200.53,
+     "p95Ms": 200.58,
+     "p99Ms": 200.73,
+     "maxMs": 435.2
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 890,
+     "rps": 22.2,
+     "errorRatePct": 0,
+     "avgMs": 204.49,
+     "p50Ms": 205.12,
+     "p90Ms": 206.36,
+     "p95Ms": 207.33,
+     "p99Ms": 209.21,
+     "maxMs": 422.32
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "taxa",
+  "cond": "lat0",
+  "rep": 5,
+  "order": 26,
+  "runId": "4b838cce3b0fef42",
+  "status": "completed",
+  "winRps": 250,
+  "winP50Ms": 0.3,
+  "winP95Ms": 4.8,
+  "winErrPct": 0,
+  "winCpuPct": 20.526470588235295,
+  "summary": {
+   "openModel": true,
+   "targetRate": 250,
+   "overall": {
+    "seconds": 60,
+    "requests": 13499,
+    "rps": 224.9,
+    "errorRatePct": 0,
+    "avgMs": 0.81,
+    "p50Ms": 0.34,
+    "p90Ms": 0.71,
+    "p95Ms": 4.95,
+    "p99Ms": 5.81,
+    "maxMs": 9.33
+   },
+   "warmupSeconds": 20,
+   "steady": {
+    "seconds": 40,
+    "requests": 9250,
+    "rps": 231.1,
+    "errorRatePct": 0,
+    "avgMs": 0.79,
+    "p50Ms": 0.33,
+    "p90Ms": 0.69,
+    "p95Ms": 4.9,
+    "p99Ms": 5.77,
+    "maxMs": 8.55
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 40,
+     "requests": 8354,
+     "rps": 208.7,
+     "errorRatePct": 0,
+     "avgMs": 0.34,
+     "p50Ms": 0.32,
+     "p90Ms": 0.45,
+     "p95Ms": 0.5,
+     "p99Ms": 0.6,
+     "maxMs": 1.34
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 40,
+     "requests": 896,
+     "rps": 22.4,
+     "errorRatePct": 0,
+     "avgMs": 5.06,
+     "p50Ms": 4.92,
+     "p90Ms": 5.78,
+     "p95Ms": 6.14,
+     "p99Ms": 7.14,
+     "maxMs": 8.55
+    }
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "antes",
+  "cond": "lat0",
+  "rep": 5,
+  "order": 27,
+  "runId": "eaf02468e10e2ee6",
+  "status": "completed",
+  "winRps": 1855.5882352941176,
+  "winP50Ms": 1,
+  "winP95Ms": 82.94999999999999,
+  "winErrPct": 0,
+  "winCpuPct": 201.91176470588235
+ },
+ {
+  "arm": "antes",
+  "cond": "lat200",
+  "rep": 5,
+  "order": 28,
+  "runId": "e4ad726e571244bf",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205.1,
+  "winErrPct": 0,
+  "winCpuPct": 7.702941176470589,
+  "faultAppliedAt": 8.29
+ },
+ {
+  "arm": "controle",
+  "cond": "lat200",
+  "rep": 5,
+  "order": 29,
+  "runId": "ad738c4665986cae",
+  "status": "completed",
+  "winRps": 99.41176470588235,
+  "winP50Ms": 200.4,
+  "winP95Ms": 205,
+  "winErrPct": 0,
+  "winCpuPct": 7.320588235294117,
+  "faultAppliedAt": 8.253,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 24603,
+    "rps": 410,
+    "errorRatePct": 0,
+    "avgMs": 43.95,
+    "p50Ms": 0.53,
+    "p90Ms": 200.44,
+    "p95Ms": 200.6,
+    "p99Ms": 205.34,
+    "maxMs": 444.24
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 24603,
+    "rps": 410,
+    "errorRatePct": 0,
+    "avgMs": 43.95,
+    "p50Ms": 0.53,
+    "p90Ms": 200.44,
+    "p95Ms": 200.6,
+    "p99Ms": 205.34,
+    "maxMs": 444.24
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 22139,
+     "rps": 368.9,
+     "errorRatePct": 0,
+     "avgMs": 41.7,
+     "p50Ms": 0.39,
+     "p90Ms": 200.42,
+     "p95Ms": 200.54,
+     "p99Ms": 200.87,
+     "maxMs": 429.97
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 2464,
+     "rps": 41.1,
+     "errorRatePct": 0,
+     "avgMs": 64.22,
+     "p50Ms": 15.52,
+     "p90Ms": 205.27,
+     "p95Ms": 205.96,
+     "p99Ms": 208.04,
+     "maxMs": 444.24
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "arm": "controle",
+  "cond": "lat0",
+  "rep": 5,
+  "order": 30,
+  "runId": "3c1eadbcd7cc154b",
+  "status": "completed",
+  "winRps": 1868.8235294117646,
+  "winP50Ms": 1.1,
+  "winP95Ms": 81.35,
+  "winErrPct": 0,
+  "winCpuPct": 201.2882352941176,
+  "summary": {
+   "openModel": false,
+   "overall": {
+    "seconds": 60,
+    "requests": 114014,
+    "rps": 1899.3,
+    "errorRatePct": 0,
+    "avgMs": 9.36,
+    "p50Ms": 0.84,
+    "p90Ms": 20.9,
+    "p95Ms": 78.25,
+    "p99Ms": 91.73,
+    "maxMs": 184.39
+   },
+   "warmupSeconds": 0,
+   "steady": {
+    "seconds": 60,
+    "requests": 114014,
+    "rps": 1899.3,
+    "errorRatePct": 0,
+    "avgMs": 9.36,
+    "p50Ms": 0.84,
+    "p90Ms": 20.9,
+    "p95Ms": 78.25,
+    "p99Ms": 91.73,
+    "maxMs": 184.39
+   },
+   "endpoints": [
+    {
+     "method": "GET",
+     "path": "/items",
+     "seconds": 60,
+     "requests": 102596,
+     "rps": 1709.1,
+     "errorRatePct": 0,
+     "avgMs": 4.74,
+     "p50Ms": 0.68,
+     "p90Ms": 4.47,
+     "p95Ms": 11.93,
+     "p99Ms": 75.36,
+     "maxMs": 94.75
+    },
+    {
+     "method": "GET",
+     "path": "/compute",
+     "seconds": 60,
+     "requests": 11418,
+     "rps": 190.2,
+     "errorRatePct": 0,
+     "avgMs": 50.81,
+     "p50Ms": 59.55,
+     "p90Ms": 91.72,
+     "p95Ms": 94.7,
+     "p99Ms": 100.31,
+     "maxMs": 184.39
+    }
+   ],
+   "warnings": [
+    "carga em VUs (modelo fechado): a vazão muda quando a latência muda. Para comparar duas versões da aplicação, use a carga por taxa de chegada."
+   ]
+  },
+  "versions": [
+   {
+    "role": "target",
+    "name": "nacbench-demo-api",
+    "commit": "4ace3b70e7919ac1495bf3419c542395a05b5a5c",
+    "images": [
+     {
+      "image": "nacbench-demo-api",
+      "id": "nacbench-demo-api@sha256:5a84a7e938eaced0eaee73d65651197325d1a010cbfa2c2fec4c83b8cedcfb90"
+     }
+    ]
+   }
+  ]
+ }
+]

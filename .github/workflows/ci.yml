@@ -32,6 +32,15 @@ jobs:
             --set guard.allowedTargetHosts='demo\,pix\,dorigao' --set guard.aiDailyLimit=50 > /tmp/cloud.yaml
           grep -q 'kind: Ingress' /tmp/cloud.yaml && grep -q AUTH_ENABLED /tmp/cloud.yaml && grep -q K6_TOLERATIONS /tmp/cloud.yaml
           helm template t deploy/charts/new-app-chaos | grep -q 'nodePort: 30080'
+      # Falhas restritas aos namespaces dos alvos: Role em cada um, ClusterRole só de leitura.
+      - run: |
+          helm template t deploy/charts/new-app-chaos -n nac --set guard.allowedTargetNamespaces='demo\,pix' \
+            --set 'rbac.targetNamespaces={demo,pix}' > /tmp/rbac.yaml
+          grep -q 'ALLOWED_TARGET_NAMESPACES, value: "demo,pix"' /tmp/rbac.yaml
+          test "$(grep -c 'name: nac-new-app-chaos-target' /tmp/rbac.yaml)" = 6
+          test "$(grep -c '"create", "delete", "patch", "update"' /tmp/rbac.yaml)" = 2
+          # Sem a lista, o comportamento de sempre: um ClusterRole com as falhas.
+          test "$(helm template t deploy/charts/new-app-chaos | grep -c '"create", "delete", "patch", "update"')" = 1
   terraform:
     runs-on: ubuntu-latest
     steps:
