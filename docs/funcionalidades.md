@@ -35,6 +35,24 @@ Quando a execução termina, o cartão **Medição** (aba Resumo) mostra o que s
 
 A IA recebe a versão e esses números junto das outras evidências.
 
+## Experimentos A/B (antes e depois, com estatística)
+
+Um experimento roda o mesmo cenário contra duas versões e decide, sem IA, se a versão B **melhorou**, **piorou**, **não difere** ou se o resultado é **inconclusivo**.
+
+- **Quem implanta é você.** A é o alvo do cenário; B é outro container ou Deployment com a versão candidata. Sem B, é um **teste A/A** (a mesma versão dos dois lados), que mede o ruído do cenário naquele ambiente. Faça um antes do primeiro A/B.
+- **Execuções repetidas e intercaladas:** A B, B A, A B... O experimento decide a partir de 5 execuções válidas por versão e para assim que a decisão deixa de ser "inconclusivo", ou no teto (10 por versão, ajustável). Enquanto ele roda, nenhuma outra execução entra; se já houver uma rodando, ele espera a vez.
+- **Métrica principal escolhida antes:** p50, p95, p99 ou média de latência, taxa de erro (da janela estável, de todos os endpoints ou de um só) ou a nota de resiliência (cenários com falhas).
+- **Regra de decisão** (pacote `internal/stats`): intervalo de 95% da diferença das medianas, por bootstrap com semente fixa, contra um limite prático (padrão: 5% da mediana de A).
+  - *Sem diferença:* o intervalo inteiro cabe dentro do limite prático.
+  - *Melhorou:* o intervalo exclui zero para o lado bom e o ganho passa do limite prático.
+  - *Piorou:* o intervalo exclui zero para o lado ruim, ou uma métrica de guarda piorou.
+  - *Inconclusivo:* todo o resto. É um resultado legítimo: os dados não bastam.
+- **Guardas:** taxa de erro, nota de resiliência e CPU do alvo por requisição. Baixar o p95 dobrando os erros não é ganho.
+- **Piso de ruído:** o teste A/A registra o quanto a métrica varia sem nenhuma mudança. Num A/B, um ganho menor que duas vezes esse piso vira "inconclusivo", e a tela avisa quando o cenário nunca teve um A/A.
+- **O que invalida uma execução:** não concluir, falha que não foi aplicada e revertida, requisições descartadas pelo gerador, nenhuma requisição na janela estável ou pods com versões diferentes. Ela é registrada com o motivo e não entra na conta. Se a imagem de um lado mudar no meio do experimento, o resultado é "inconclusivo".
+- **Exige carga por taxa de chegada** nas métricas de latência e erro: com carga em VUs a versão mais rápida receberia mais carga.
+- A execução de um experimento mostra de qual experimento e de que lado ela é. As do lado B não entram no histórico que o chat da IA usa (são de outro alvo).
+
 ## Caos
 
 Três modos por cenário (só carga, só caos, carga + caos). No editor, as falhas são blocos numa linha do tempo: arraste para mover, puxe as bordas para mudar a duração (setas do teclado também funcionam). Uma falha por vez neste marco. Falhas e parâmetros (nomes iguais aos do krkn):

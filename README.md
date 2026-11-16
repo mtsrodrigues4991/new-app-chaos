@@ -28,6 +28,7 @@ e uma análise da IA dizendo o que quebrou, por quê e onde corrigir no código.
 | 💥 **Caos** | Arraste falhas numa linha do tempo: latência, perda de pacotes, CPU, memória e kill. No Kubernetes também falhas de disco, DNS e HTTP, inclusive em dependências como o Postgres. |
 | 🎯 **Veredito** | SLOs editáveis e uma nota de resiliência de 0 a 100 (inspirada no Resiliency Score do krkn), sem IA e reproduzível. |
 | 🤖 **IA** | Relatório sob demanda com ponto de quebra, causas e correções que apontam arquivo e linha do seu repositório. Compara com uma execução de referência e tem chat por execução. |
+| ⚖️ **Antes e depois** | Experimento A/B: o mesmo teste contra duas versões, repetido e intercalado, com decisão estatística (melhorou, piorou, sem diferença ou inconclusivo) e teste A/A para medir o ruído do ambiente. |
 | 🔭 **Observabilidade** | Opcional: Grafana com Prometheus, Loki, Tempo e Pyroscope. Heap, GC, traces lentos e profiling entram na análise. |
 
 Detalhes de cada funcionalidade em [docs/funcionalidades.md](docs/funcionalidades.md).
@@ -234,6 +235,7 @@ docs/                especificação e funcionalidades
 - **MVP2 (Kubernetes local):** KIND + Helm, falhas pelo Chaos Mesh, falhas em dependências, disco, DNS e HTTP, logs e eventos do Kubernetes na IA, stack Grafana opcional, visual novo.
 - **MVP plus (Azure):** AKS com URL pública, HTTPS e login, liga e desliga pelo GitHub Actions, k6 em nó spot separado e Grafana isolado dos alvos.
 - **Fase 0 da [análise de evolução](docs/analise-evolucao.md), medição confiável:** carga por taxa de chegada, aquecimento, números da execução inteira e por endpoint, versão testada (imagem e commit) em cada execução, IA lendo o commit que rodou e trava de namespaces. Resultado medido em [docs/resultados/fase-0-medicao-confiavel.md](docs/resultados/fase-0-medicao-confiavel.md).
+- **Fase 1, antes e depois com estatística:** experimentos A/B e A/A com execuções intercaladas, regra de decisão sem IA (intervalo de 95% por bootstrap, limite prático, guardas e piso de ruído). Prova em [docs/resultados/fase-1-experimentos.md](docs/resultados/fase-1-experimentos.md).
 
 ### 📋 Backlog
 

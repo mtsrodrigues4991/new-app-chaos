@@ -5,9 +5,9 @@ Data: 16/11/2026 · Commit analisado: `4ace3b7` (branch `main`)
 Este documento avalia o projeto contra a visão do produto e propõe o caminho até o ciclo
 "detecta → sugere → corrige → re-testa → compara".
 
-> **Andamento (16/11/2026):** a **Fase 0 (medição confiável) está concluída**. O que foi entregue, o
-> critério de pronto conferido e os desvios do plano estão na [seção 6](#fase-0-medição-confiável-mvp-parte-1--concluída);
-> o benchmark antes e depois está em [resultados/fase-0-medicao-confiavel.md](resultados/fase-0-medicao-confiavel.md).
+> **Andamento (16/11/2026):** as **Fases 0 (medição confiável) e 1 (antes e depois com estatística) estão concluídas**. O que foi
+> entregue, o critério de pronto conferido e os desvios do plano estão na [seção 6](#6-roadmap-em-fases); os
+> resultados medidos estão em [resultados/](resultados/).
 > As seções 1 e 2 descrevem o código como estava no commit `4ace3b7`, antes da fase; as lacunas que ela
 > fechou estão marcadas na seção 2.
 
@@ -194,7 +194,7 @@ Ordenadas pelo quanto impedem a visão.
 
 ### Medição e comparação
 
-**L1. A comparação é uma execução contra uma, julgada pela IA.**
+**L1. A comparação é uma execução contra uma, julgada pela IA.** *(Fechada na Fase 1: experimento A/B com decisão estatística. A regressão da IA contra a referência continua existindo, como explicação.)*
 Cada cenário guarda um único id de referência ([store.go:97-100](../backend/internal/store/store.go#L97-L100)). O backend manda as duas
 execuções ao modelo, e o veredito da regressão é um texto dele ([report.go:136](../backend/internal/analysis/report.go#L136),
 [report.go:109-113](../backend/internal/analysis/report.go#L109-L113)). Não há repetição, variância nem intervalo de confiança.
@@ -222,7 +222,7 @@ mediana e o máximo desses p95 por segundo ([evidence.go:38-40](../backend/inter
 O dashboard do k6 emite também um evento `cumulative` com os agregados desde o início, mas o leitor o
 ignora ([dashboard.go:47-96](../backend/internal/load/dashboard.go#L47-L96); verificado com o k6 0.54). Esse acumulado inclui o aquecimento.
 
-**L6. Não existe o conceito de experimento.**
+**L6. Não existe o conceito de experimento.** *(Fechada na Fase 1.)*
 Só uma execução por vez, sem fila ([runner.go:136-141](../backend/internal/runner/runner.go#L136-L141)). Não há entidade que agrupe várias
 execuções de duas versões nem regra de decisão.
 
@@ -312,7 +312,7 @@ A validação recusa sobreposição ([faults.go:180-182](../backend/internal/sce
 | O1 ✅ | Registrar a versão testada em cada execução | Alto | Baixo | L4 |
 | O2 ✅ | Trava de namespaces e RBAC por namespace | Alto | Baixo | L11, L12 |
 | O3 ✅ | Carga por taxa de chegada e métricas por endpoint | Alto | Médio | L2, L3, L5 |
-| O4 | Experimento A/B com repetições e estatística | Alto | Médio | L1, L6, L7 |
+| O4 ✅ | Experimento A/B com repetições e estatística | Alto | Médio | L1, L6, L7 |
 | O5 | Correção como patch verificável | Médio | Baixo | L8 |
 | O6 | Importar OpenAPI para preencher o cenário | Médio | Baixo | L15 |
 | O7 | Hipóteses de resiliência verificáveis | Alto | Médio | L17 |
@@ -695,13 +695,72 @@ Concluída em 16/11/2026. Benchmark antes e depois: [resultados/fase-0-medicao-c
 - As pré-condições de ambiente da seção 5.2 (réplicas fixas, `requests` iguais a `limits`, CPU ociosa) não
   são conferidas pelo app. Entram com o experimento, na Fase 1.
 
-### Fase 1: comparar antes e depois, com você implantando (MVP, parte 2)
+### Fase 1: comparar antes e depois, com você implantando (MVP, parte 2) — concluída
+
+Concluída em 16/11/2026. Prova do critério de pronto: [resultados/fase-1-experimentos.md](resultados/fase-1-experimentos.md).
 
 - O4: experimento A/B com repetições, teste A/A, regra de decisão e fila.
 - Você implanta a versão B à mão (ou pelo `kind-up`); a ferramenta roda as séries e decide.
 - **Pronto quando:** o A/A dá "sem diferença" e um atraso artificial de 20 ms no `demo-api` dá "piorou".
 - **Por que este é o MVP:** entrega a prova de ganho, que é o valor central do pilar 4, sem nenhum risco de
   agente escrevendo código.
+
+**Critério de pronto, conferido:**
+
+| Critério | Resultado |
+|---|---|
+| O A/A dá "sem diferença" | **Atendido.** p95 de 4,93 ms contra 4,96 ms; intervalo de 95% da diferença de −0,09 a +0,26 ms, dentro do limite prático. Piso de ruído medido: 5,3%. |
+| 20 ms de atraso no `demo-api` dá "piorou" | **Atendido.** p95 de 4,97 ms contra 25,49 ms; diferença de +20,52 ms, intervalo de +20,26 a +20,89 ms. |
+
+Os dois decidiram com 5 execuções válidas por lado. Rodaram no modo Docker; uma rodada de cada.
+
+**Onde ficou cada peça:**
+
+| Item | Código |
+|---|---|
+| Estatística: mediana, bootstrap, regra de decisão | [stats.go](../backend/internal/stats/stats.go) |
+| Experimento: especificação, medição por execução, guardas, piso de ruído | [experiment.go](../backend/internal/experiment/experiment.go), [decide.go](../backend/internal/experiment/decide.go) |
+| Fila: execuções intercaladas, espera pelo runner, abort, limpeza na subida | [manager.go](../backend/internal/experiment/manager.go) |
+| Banco e API | [experiments.go](../backend/internal/store/experiments.go), [experiments.go](../backend/internal/api/experiments.go) |
+| Tela | [Experiments.tsx](../frontend/src/pages/Experiments.tsx) |
+| Prova | [bench-fase1.sh](../scripts/bench-fase1.sh); `DELAY_MS` no [demo-api](../examples/demo-api/main.go) |
+
+**Desvios do plano:**
+
+1. **A regra tem quatro resultados, não três.** A seção 5.2 lista "melhorou", "piorou" e "inconclusivo", mas
+   o critério de pronto pede que o A/A dê "sem diferença". Esse resultado existe quando o intervalo inteiro
+   cabe dentro do limite prático: há dados suficientes para afirmar que a diferença, se existe, não importa.
+   "Inconclusivo" fica para quando os dados não bastam.
+2. **"Sem diferença" tem precedência sobre "piorou".** Pela seção 5.2, qualquer intervalo que exclua zero
+   para o lado ruim seria "piorou". Aqui, uma piora real mas menor que o limite prático (o intervalo inteiro
+   dentro dele) dá "sem diferença". Sem isso, medições muito precisas marcariam como piora diferenças de 0,1%.
+3. **O limite prático tem um piso absoluto por métrica** (0,5 ms de latência, 0,1 ponto percentual de erro,
+   1 ponto de nota). Sem ele, 5% de um p95 de 5 ms seriam 0,25 ms, abaixo do que a medição distingue.
+4. **Um ganho menor que duas vezes o piso de ruído do último A/A vira "inconclusivo".** A seção 5.2 diz que
+   esses ganhos "não são detectáveis"; a regra passou a aplicar isso, em vez de só avisar.
+5. **A fila é só dos experimentos.** Uma execução avulsa durante um experimento continua recebendo "já existe
+   uma execução em andamento"; o experimento é quem espera a vez quando o runner está ocupado. Um
+   experimento por vez.
+6. **Parar cedo está implementado como a análise descreve**, com a ressalva de que olhar o resultado a cada
+   par aumenta um pouco a chance de um resultado por acaso. Não há correção para isso.
+7. **Execuções inválidas são repostas até o teto.** Seis execuções seguidas sem nenhuma válida encerram o
+   experimento com erro, em vez de gastar o teto inteiro.
+8. **Das pré-condições de ambiente da seção 5.2, o app confere três:** gerador saturado (requisições
+   descartadas), versão estável de cada lado (pela imagem registrada na Fase 0) e falhas aplicadas e
+   revertidas. **Não confere:** réplicas fixas, `requests` iguais a `limits`, CPU ociosa antes de começar,
+   pods novos a cada execução e banco restaurado. O teste A/A é o que denuncia um ambiente instável.
+9. **As execuções do lado B ficam no histórico do cenário**, marcadas com o experimento, mas fora do
+   histórico que o chat da IA usa (são de outro alvo).
+10. **A prova usou um atraso por variável de ambiente** (`DELAY_MS`) na mesma imagem, e não uma imagem
+    diferente: os dois lados têm o mesmo digest, e a tela avisa que a diferença vem da configuração.
+
+**Fora da fase, e ainda em aberto:**
+
+- Rodar um experimento no KIND e na AKS (teste real, com você).
+- Medir a taxa de falso positivo da regra, repetindo o A/A muitas vezes.
+- As pré-condições de ambiente que o app não confere (desvio 8).
+- A IA explicar o resultado do experimento: hoje a tela mostra a decisão, os números e as notas da regra,
+  sem texto da IA.
 
 ### Fase 2: da sugestão ao PR
 

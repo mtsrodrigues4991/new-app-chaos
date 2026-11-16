@@ -12,6 +12,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/obs"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -65,6 +66,8 @@ func main() {
 		log.Printf("imagem auxiliar das falhas de rede: %v", mgr.Chaos.ToolsImages)
 	}
 	mgr.Recover(context.Background())
+	exps := experiment.NewManager(mgr, st)
+	exps.Recover(context.Background())
 
 	// IA: a chave vem só do ambiente (.env). Sem chave, o app funciona e o botão da IA avisa.
 	key := os.Getenv("ANTHROPIC_API_KEY")
@@ -96,7 +99,7 @@ func main() {
 		log.Printf("limite diário da IA: %d", guard.AIDailyLimit)
 	}
 
-	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, AI: reg, Code: code, Auth: au, Guard: guard}
+	srv := &api.Server{Docker: dk, Kube: kc, Store: st, Runner: mgr, Experiments: exps, AI: reg, Code: code, Auth: au, Guard: guard}
 	// Grafana pelo próprio app (/grafana), sem port-forward: só com a observabilidade ligada.
 	if g := os.Getenv("OBS_GRAFANA_PROXY"); g != "" {
 		h, err := api.GrafanaProxy(g)

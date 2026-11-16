@@ -18,6 +18,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/auth"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/dockerx"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/kube"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/load"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/runner"
@@ -31,8 +32,10 @@ type Server struct {
 	Kube   *kube.Client    // nil fora de um cluster Kubernetes
 	Store  *store.Store
 	Runner *runner.Manager
-	AI     *ai.Registry
-	Code   *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
+	// Experiments roda os experimentos A/B (a fila de execuções intercaladas).
+	Experiments *experiment.Manager
+	AI          *ai.Registry
+	Code        *coderepo.Fetcher // baixa o código da aplicação alvo para a IA
 	// Grafana repassa /grafana/ para o Grafana do cluster (nil = sem proxy).
 	Grafana http.Handler
 	// Auth é o login do modo nuvem (nil ou desligado = tudo aberto, como no modo local).
@@ -84,6 +87,11 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/runs/{id}/chat", s.getChat)
 	r.Post("/api/runs/{id}/chat", s.postChat)
 	r.Delete("/api/runs/{id}/chat", s.clearChat)
+
+	r.Get("/api/experiments", s.listExperiments)
+	r.Post("/api/experiments", s.createExperiment)
+	r.Get("/api/experiments/{id}", s.getExperiment)
+	r.Post("/api/experiments/{id}/abort", s.abortExperiment)
 
 	r.Get("/api/settings/ai", s.getAISettings)
 	r.Put("/api/settings/ai", s.putAISettings)
@@ -283,7 +291,13 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		Versions []store.Version `json:"versions,omitempty"`
 		// Summary: números da execução inteira e por endpoint (ausente sem carga ou em execuções antigas).
 		Summary *load.Summary `json:"summary,omitempty"`
+		// Experiment: o experimento que disparou esta execução e de que lado ela é (ausente nas avulsas).
+		Experiment *store.RunTag `json:"experiment,omitempty"`
 	}{Run: d.Run, Windows: d.Windows, FaultEvents: d.Events, ReferenceRunID: refID, Versions: d.Versions, Summary: d.Summary}
+	if out.Experiment, err = s.Store.RunTagOf(r.Context(), d.Run.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	if finished(d.Run) {
 		out.Verdict = &d.Verdict
 		var rep analysis.Report

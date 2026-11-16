@@ -16,6 +16,7 @@ import (
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/ai"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/analysis"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/coderepo"
+	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/experiment"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/store"
 	"github.com/mtsrodrigues4991/new-app-chaos/backend/internal/verdict"
 )
@@ -115,6 +116,10 @@ func (s *Server) input(ctx context.Context, cur analysis.RunData, withHistory bo
 	}
 	for _, r := range runs {
 		if !finished(r) {
+			continue
+		}
+		// O lado B de um experimento roda outro alvo (a versão candidata): não é histórico deste.
+		if tag, err := s.Store.RunTagOf(ctx, r.ID); err == nil && tag != nil && tag.Arm == experiment.ArmB && r.ID != cur.Run.ID {
 			continue
 		}
 		d, err := s.runData(ctx, r.ID)

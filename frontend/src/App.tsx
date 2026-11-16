@@ -10,11 +10,13 @@ import RunView from './pages/RunView';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Users from './pages/Users';
+import Experiments, { ExperimentView, NewExperiment } from './pages/Experiments';
 
 const nav: { path: string; label: string; icon: IconName }[] = [
   { path: 'alvos', label: 'Alvos', icon: 'target' },
   { path: 'cenarios', label: 'Cenários', icon: 'scenario' },
   { path: 'execucoes', label: 'Execuções', icon: 'pulse' },
+  { path: 'experimentos', label: 'Experimentos', icon: 'chart' },
   { path: 'configuracoes', label: 'Configurações', icon: 'settings' },
 ];
 
@@ -117,6 +119,9 @@ function Shell({ me }: { me: Me | null }) {
           {section === 'cenarios' && id && <ScenarioEditor id={id === 'novo' ? undefined : id} />}
           {section === 'execucoes' && !id && <Runs />}
           {section === 'execucoes' && id && <RunView id={id} />}
+          {section === 'experimentos' && !id && <Experiments />}
+          {section === 'experimentos' && id === 'novo' && <NewExperiment />}
+          {section === 'experimentos' && id && id !== 'novo' && <ExperimentView id={id} />}
           {section === 'configuracoes' && <Settings />}
           {section === 'usuarios' && user?.admin && <Users me={user} />}
         </div>

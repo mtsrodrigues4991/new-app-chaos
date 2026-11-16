@@ -197,6 +197,11 @@ export default function RunView({ id }: { id: string }) {
           <span aria-hidden="true">/</span>
           <span className="current">{run.scenarioName}</span>
           <span className="mono">#{run.id.slice(0, 8)}</span>
+          {run.experiment && (
+            <a className="badge" href={`#/experimentos/${run.experiment.experimentId}`}>
+              experimento · lado {run.experiment.arm}
+            </a>
+          )}
         </nav>
         <div className="toolbar">
           {grafanaLink && (

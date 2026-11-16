@@ -291,7 +291,75 @@ export type Summary = {
   warnings?: string[]; // por que a execução não serve para comparação
 };
 
+// --- experimentos A/B ---
+
+export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'aborted' | 'failed';
+export type Outcome = 'melhorou' | 'piorou' | 'sem_diferenca' | 'inconclusivo';
+export type MetricName = 'p50' | 'p95' | 'p99' | 'avg' | 'error_rate' | 'score' | 'cpu_per_request';
+export type ExperimentMetric = { name: MetricName; endpoint?: number };
+
+// Comparação de B com A numa métrica: medianas, diferença e intervalo de 95% (bootstrap).
+export type Comparison = {
+  nA: number;
+  nB: number;
+  medianA: number;
+  medianB: number;
+  diff: number;
+  lo: number;
+  hi: number;
+  diffPct: number;
+  loPct: number;
+  hiPct: number;
+  marginAbs: number;
+  outcome: Outcome;
+  why: string;
+};
+
+export type ArmRun = {
+  arm: 'A' | 'B';
+  runId?: string;
+  status: string;
+  valid: boolean;
+  invalid?: string;
+  values?: Partial<Record<MetricName, number>>;
+  version?: string;
+  commit?: string;
+};
+
+export type ExperimentResult = {
+  outcome: Outcome;
+  primary: Comparison;
+  guards: (Comparison & { metric: MetricName })[];
+  noisePct?: number;
+  notes: string[];
+};
+
+// b ausente = teste A/A (a mesma versão dos dois lados, para medir o ruído do ambiente).
+export type ExperimentSpec = {
+  name?: string;
+  scenarioId: string;
+  b?: Target;
+  metric: ExperimentMetric;
+  minRuns?: number;
+  maxRuns?: number;
+  marginPct?: number;
+  cooldownSeconds?: number;
+};
+
+export type Experiment = Required<Omit<ExperimentSpec, 'b'>> & {
+  id: string;
+  b?: Target;
+  scenario: Scenario;
+  status: ExperimentStatus;
+  error?: string;
+  createdAt: string;
+  endedAt?: string;
+  runs: ArmRun[];
+  result?: ExperimentResult;
+};
+
 export type RunDetail = Run & {
+  experiment?: { experimentId: string; arm: 'A' | 'B' };
   versions?: Version[];
   summary?: Summary;
   windows: Window[];
@@ -360,6 +428,10 @@ export const api = {
   chat: (runId: string) => call<ChatMessage[]>('GET', `/api/runs/${runId}/chat`),
   ask: (runId: string, message: string) => call<ChatMessage[]>('POST', `/api/runs/${runId}/chat`, { message }),
   clearChat: (runId: string) => call<void>('DELETE', `/api/runs/${runId}/chat`),
+  experiments: (scenarioId?: string) => call<Experiment[]>('GET', `/api/experiments${scenarioId ? `?scenarioId=${scenarioId}` : ''}`),
+  experiment: (id: string) => call<Experiment>('GET', `/api/experiments/${id}`),
+  createExperiment: (s: ExperimentSpec) => call<Experiment>('POST', '/api/experiments', s),
+  abortExperiment: (id: string) => call<void>('POST', `/api/experiments/${id}/abort`),
   aiSettings: () => call<AISettings>('GET', '/api/settings/ai'),
   saveAISettings: (s: AISettings) => call<AISettings>('PUT', '/api/settings/ai', { provider: s.provider, model: s.model }),
 };
