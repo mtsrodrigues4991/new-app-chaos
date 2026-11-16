@@ -19,6 +19,10 @@ blob() { az storage blob "$@" --account-name "$sa" --account-key "$key" -c db -o
 pod=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=new-app-chaos-backend \
   --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 if [[ -z "$pod" ]]; then echo "sem backend rodando no cluster; nada a fazer"; exit 0; fi
+# Um backend anterior ao backup não entende "server backup" (subiria outro servidor no pod).
+if ! kubectl -n "$NS" exec "$pod" -- test -f /usr/local/lib/new-app-chaos/can-backup 2>/dev/null; then
+  echo "aviso: o backend deste ambiente é anterior ao backup do banco; nada foi guardado nem devolvido"; exit 0
+fi
 
 case "$action" in
   backup)

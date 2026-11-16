@@ -13,5 +13,7 @@ FROM alpine:3.20
 RUN apk add --no-cache iproute2 git
 COPY --from=build /out/server /usr/local/bin/server
 COPY --from=build /out/stressor /usr/local/lib/new-app-chaos/stressor
+# Marca que este backend entende "server backup" (o scripts/azure-db-backup.sh confere antes de chamar).
+RUN touch /usr/local/lib/new-app-chaos/can-backup
 EXPOSE 8080
 ENTRYPOINT ["server"]
