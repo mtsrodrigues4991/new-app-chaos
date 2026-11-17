@@ -42,11 +42,20 @@ func ApplyRestore(path string) (bool, error) {
 	}
 	var check string
 	err = db.QueryRow(`PRAGMA quick_check`).Scan(&check)
+	// Um arquivo vazio passa no quick_check: para o SQLite é um banco válido, sem nada. Só é
+	// um backup do app se tiver as tabelas dele.
+	tables := 0
+	if err == nil && check == "ok" {
+		err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('runs', 'scenarios')`).Scan(&tables)
+	}
 	db.Close()
-	if err != nil || check != "ok" {
-		// Um arquivo corrompido não pode apagar o banco que está lá: fica de lado, com outro nome.
+	if err != nil || check != "ok" || tables != 2 {
+		// Um arquivo corrompido ou vazio não pode apagar o banco que está lá: fica de lado, com outro nome.
 		_ = os.Rename(from, from+".invalido")
-		return false, fmt.Errorf("o arquivo de restauração não é um banco íntegro (%v %s); o banco atual foi mantido", err, check)
+		for _, suffix := range []string{"-wal", "-shm"} {
+			_ = os.Remove(from + suffix)
+		}
+		return false, fmt.Errorf("o arquivo de restauração não é um backup íntegro do app (erro: %v; conferência: %q; tabelas do app: %d de 2); o banco atual foi mantido", err, check, tables)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		_ = os.Remove(path + suffix)
