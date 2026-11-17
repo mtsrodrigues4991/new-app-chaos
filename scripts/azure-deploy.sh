@@ -141,7 +141,10 @@ for t in $TARGETS; do
     demo-api) step "Alvo demo-api"; target demo-api demo --set image="$ACR/new-app-chaos-demo-api:$TAG" --set revision="${GITHUB_SHA:-}" ;; # o demo-api é deste repositório
     pix)
       step "Alvo pix-api + Postgres"
-      target pix-postgres pix
+      # O disco gerenciado da Azure vem com a pasta lost+found, e o initdb recusa uma pasta de dados
+      # que não está vazia: os dados vão para uma subpasta do volume. (No KIND o volume é uma pasta
+      # vazia e o banco já existe na raiz dele, por isso a variável entra só aqui.)
+      target pix-postgres pix --set 'env[3].name=PGDATA' --set 'env[3].value=/var/lib/postgresql/data/pgdata'
       target pix-api pix --set image="$ACR/new-app-chaos-pix-api:$TAG" "${java_otel[@]}"
       ;;
     svc-pedido|svc-pagamento|svc-catalogo) step "Alvo $t"; target "$t" dorigao --set image="$ACR/new-app-chaos-$t:$TAG" ;;
