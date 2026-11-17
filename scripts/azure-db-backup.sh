@@ -7,14 +7,14 @@
 #      (precisa de kubectl apontando para o AKS, az login e RG)
 #
 # O backup é uma cópia consistente feita pelo próprio backend, sem pará-lo. Fica em
-# db/app.db.gz (a mais recente) e db/app-<dia>.db.gz (uma por dia, para voltar atrás).
+# appdb/app.db.gz (a mais recente) e appdb/app-<dia>.db.gz (uma por dia, para voltar atrás).
 set -euo pipefail
 action=$1 sa=$2
 NS=new-app-chaos
 db="$(mktemp)"
 trap 'rm -f "$db" "$db.gz"' EXIT
 key=$(az storage account keys list -n "$sa" -g "$RG" --query '[0].value' -o tsv)
-blob() { az storage blob "$@" --account-name "$sa" --account-key "$key" -c db -o none; }
+blob() { az storage blob "$@" --account-name "$sa" --account-key "$key" -c appdb -o none; }
 
 pod=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=new-app-chaos-backend \
   --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
