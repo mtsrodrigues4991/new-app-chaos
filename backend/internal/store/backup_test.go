@@ -57,6 +57,12 @@ func TestBackupAndRestore(t *testing.T) {
 	if ok, err := ApplyRestore(fresh); ok || err == nil || !strings.Contains(err.Error(), "mantido") {
 		t.Fatalf("arquivo corrompido: %v %v", ok, err)
 	}
+	// Um arquivo vazio também não: para o SQLite ele é um banco válido e vazio, e foi assim que
+	// uma transferência que entregou 0 bytes zerou o histórico na AKS.
+	os.WriteFile(fresh+RestoreSuffix, nil, 0o644)
+	if ok, err := ApplyRestore(fresh); ok || err == nil || !strings.Contains(err.Error(), "mantido") {
+		t.Fatalf("arquivo vazio: %v %v", ok, err)
+	}
 	n, _ = Open(fresh)
 	defer n.Close()
 	if _, err := n.GetScenario(ctx, "s1"); err != nil {

@@ -29,9 +29,14 @@ case "$action" in
     # A cópia fica no /tmp do pod, que some com ele; o próximo backup a sobrescreve.
     kubectl -n "$NS" exec "$pod" -- server backup /tmp/app-backup.db >/dev/null
     kubectl -n "$NS" exec "$pod" -- cat /tmp/app-backup.db > "$db"
-    # Um arquivo vazio ou truncado não pode sobrescrever um backup bom.
+    # Um arquivo vazio ou truncado não pode sobrescrever um backup bom: tem que ser SQLite e
+    # chegar idêntico ao que está no pod.
     if [[ "$(head -c 15 "$db")" != "SQLite format 3" ]]; then
       echo "erro: a cópia do banco não é um arquivo SQLite; o backup anterior foi mantido" >&2; exit 1
+    fi
+    there=$(kubectl -n "$NS" exec "$pod" -- sha256sum /tmp/app-backup.db | cut -d' ' -f1)
+    if [[ "$there" != "$(sha256sum < "$db" | cut -d' ' -f1)" ]]; then
+      echo "erro: a cópia do banco chegou diferente da que está no pod; o backup anterior foi mantido" >&2; exit 1
     fi
     gzip -9 -k "$db"
     blob upload -n app.db.gz -f "$db.gz" --overwrite
@@ -42,11 +47,27 @@ case "$action" in
     if ! blob download -n app.db.gz -f "$db.gz" 2>/dev/null; then
       echo "sem banco guardado; o ambiente começa vazio"; exit 0
     fi
-    gunzip -c "$db.gz" > "$db"
+    # Quem baixa o backup é o próprio pod, por uma URL de leitura que vale 15 minutos para este
+    # arquivo. Mandar o arquivo pela entrada do "kubectl exec" não serve: na AKS chegam 0 bytes,
+    # sem erro (visto com o servidor 1.36), e um arquivo vazio é um banco SQLite válido e vazio.
+    sas=$(az storage blob generate-sas --account-name "$sa" --account-key "$key" -c appdb -n app.db.gz \
+      --permissions r --expiry "$(date -u -d '+15 minutes' +%Y-%m-%dT%H:%MZ)" --https-only -o tsv)
+    here=$(sha256sum < "$db.gz" | cut -d' ' -f1)
+    # shellcheck disable=SC2016 # o $1 é do sh dentro do pod
+    there=$(kubectl -n "$NS" exec "$pod" -- sh -c \
+      'wget -q -O /tmp/app-restore.gz "$1" && sha256sum /tmp/app-restore.gz | cut -d" " -f1' sh \
+      "https://$sa.blob.core.windows.net/appdb/app.db.gz?$sas")
+    if [[ -z "$there" || "$there" != "$here" ]]; then
+      echo "erro: o backup não chegou inteiro ao pod; o ambiente segue com o banco que tinha" >&2; exit 1
+    fi
     # O arquivo entra ao lado do banco; o backend o adota ao reiniciar (e o confere antes).
-    kubectl -n "$NS" exec -i "$pod" -- sh -c 'cat > /data/app.db.restore' < "$db"
+    kubectl -n "$NS" exec "$pod" -- sh -c 'gunzip -c /tmp/app-restore.gz > /data/app.db.restore'
     kubectl -n "$NS" rollout restart deploy/backend >/dev/null
     kubectl -n "$NS" rollout status deploy/backend --timeout 5m >/dev/null
+    # Só vale se o backend disser que adotou o arquivo: ele recusa um banco vazio ou corrompido.
+    if ! kubectl -n "$NS" logs deploy/backend --tail=200 | grep -q "banco restaurado a partir de"; then
+      echo "erro: o backend não adotou o backup (veja kubectl -n $NS logs deploy/backend)" >&2; exit 1
+    fi
     echo "banco restaurado"
     ;;
   *) echo "uso: $0 backup|restore <storage account>" >&2; exit 1 ;;
